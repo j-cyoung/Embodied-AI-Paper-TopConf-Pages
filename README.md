@@ -4,7 +4,7 @@
 
 ### 数据来源声明
 本项目的论文列表基于：  
-https://github.com/j-cyoung/Embodied-AI-Paper-TopConf-Pages
+https://github.com/Songwxuan/Embodied-AI-Paper-TopConf
 
 ### 项目定位
 - 论文可视化 pipeline（用于快速整理与分析）
