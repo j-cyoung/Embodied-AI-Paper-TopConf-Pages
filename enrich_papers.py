@@ -404,17 +404,31 @@ def should_reuse(existing: Dict[str, Any], source_hash: str, require_pdf: bool) 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("csv_in")
-    ap.add_argument("--out_csv", default="./store/enrich/papers.enriched.csv")
-    ap.add_argument("--out_jsonl", default="./store/enrich/papers.enriched.jsonl")
-    ap.add_argument("--pdf_dir", default="./store/enrich/pdfs")
+    ap.add_argument("--out_csv", default="papers.enriched.csv")
+    ap.add_argument("--out_jsonl", default="papers.enriched.jsonl")
+    ap.add_argument("--pdf_dir", default="pdfs")
     ap.add_argument("--download_pdf", action="store_true", default=False,
                     help="Download pdfs (only when pdf_url is available).")
     ap.add_argument("--sleep", type=float, default=0.8, help="Sleep between API calls to reduce rate-limit risk.")
-    ap.add_argument("--cache", default="./store/enrich/.cache_s2.jsonl")
+    ap.add_argument("--cache", default=".cache_s2.jsonl")
     ap.add_argument("--resume", action="store_true", default=False)
-    ap.add_argument("--resume_from", default="", help="Optional path to prior enriched output (csv/jsonl)") 
-    ap.add_argument("--issues_out", default="./store/enrich/papers.enrich_issues.csv")
+    ap.add_argument("--resume_from", default="", help="Optional path to prior enriched output (csv/jsonl)")
+    ap.add_argument("--issues_out", default="papers.enrich_issues.csv")
+    ap.add_argument("--base_output_dir", default="./store/enrich", help="输出根目录（相对路径会拼接到该目录）")
     args = ap.parse_args()
+
+    if args.base_output_dir:
+        os.makedirs(os.path.dirname(args.base_output_dir), exist_ok=True)
+        if not os.path.isabs(args.out_csv):
+            args.out_csv = os.path.join(args.base_output_dir, os.path.relpath(args.out_csv, "."))
+        if not os.path.isabs(args.out_jsonl):
+            args.out_jsonl = os.path.join(args.base_output_dir, os.path.relpath(args.out_jsonl, "."))
+        if not os.path.isabs(args.pdf_dir):
+            args.pdf_dir = os.path.join(args.base_output_dir, os.path.relpath(args.pdf_dir, "."))
+        if not os.path.isabs(args.cache):
+            args.cache = os.path.join(args.base_output_dir, os.path.relpath(args.cache, "."))
+        if not os.path.isabs(args.issues_out):
+            args.issues_out = os.path.join(args.base_output_dir, os.path.relpath(args.issues_out, "."))
 
     rows = load_csv(args.csv_in)
     cache = load_cache(args.cache)

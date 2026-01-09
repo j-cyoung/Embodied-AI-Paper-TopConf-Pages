@@ -107,10 +107,11 @@ def load_existing_pages(path: Optional[str]) -> Dict[str, Dict[str, Any]]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv_in", required=True, help="papers.enriched.csv")
-    ap.add_argument("--pdf_dir", default="./store/ocr/pdfs")
-    ap.add_argument("--md_dir", default="./store/ocr/mds")
-    ap.add_argument("--out_jsonl", default="./store/ocr/papers.pages.jsonl")
-    ap.add_argument("--issues_out", default="./store/ocr/papers.md_issues.csv")
+    ap.add_argument("--pdf_dir", default="pdfs")
+    ap.add_argument("--md_dir", default="mds")
+    ap.add_argument("--out_jsonl", default="papers.pages.jsonl")
+    ap.add_argument("--issues_out", default="papers.md_issues.csv")
+    ap.add_argument("--base_output_dir", default="./store/ocr", help="输出根目录（相对路径会拼接到该目录）")
 
     ap.add_argument("--page_chunks", action="store_true", default=True,
                     help="page_chunks=True: 输出按页 chunks（推荐）；否则输出整篇 markdown 字符串")
@@ -132,6 +133,19 @@ def main():
     ap.add_argument("--resume_from", default="", help="Optional path to prior pages jsonl")
 
     args = ap.parse_args()
+
+    if args.base_output_dir:
+        os.makedirs(os.path.dirname(args.base_output_dir), exist_ok=True)
+        if not os.path.isabs(args.pdf_dir):
+            args.pdf_dir = os.path.join(args.base_output_dir, os.path.relpath(args.pdf_dir, "."))
+        if not os.path.isabs(args.md_dir):
+            args.md_dir = os.path.join(args.base_output_dir, os.path.relpath(args.md_dir, "."))
+        if not os.path.isabs(args.out_jsonl):
+            args.out_jsonl = os.path.join(args.base_output_dir, os.path.relpath(args.out_jsonl, "."))
+        if not os.path.isabs(args.issues_out):
+            args.issues_out = os.path.join(args.base_output_dir, os.path.relpath(args.issues_out, "."))
+        if not os.path.isabs(args.image_dir):
+            args.image_dir = os.path.join(args.base_output_dir, os.path.relpath(args.image_dir, "."))
 
     rows = load_csv(args.csv_in)
     if args.top_k and args.top_k > 0:

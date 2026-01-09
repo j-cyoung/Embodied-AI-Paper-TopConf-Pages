@@ -5,6 +5,8 @@ import json
 import os
 import re
 import argparse
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -304,9 +306,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv_in", default="./store/enrich/papers.enriched.csv")
     ap.add_argument("--compute_jsonl", default="./store/compute/gpu_compute.jsonl")
-    ap.add_argument("--out_jsonl", default="./store/llm/papers.llm.jsonl")
-    ap.add_argument("--out_csv", default="./store/llm/papers.llm.csv")
-    ap.add_argument("--issues_out", default="./store/llm/papers.llm_issues.csv")
+    ap.add_argument("--out_jsonl", default="papers.llm.jsonl")
+    ap.add_argument("--out_csv", default="papers.llm.csv")
+    ap.add_argument("--issues_out", default="papers.llm_issues.csv")
+    ap.add_argument("--base_output_dir", default="./store/llm", help="输出根目录（相对路径会拼接到该目录）")
 
     ap.add_argument("--model", default="Qwen/Qwen2.5-72B-Instruct")
     ap.add_argument("--base_url", default="https://api.siliconflow.cn/v1")
@@ -333,8 +336,18 @@ def main() -> None:
     ap.add_argument("--resume", action="store_true", default=False)
     ap.add_argument("--resume_from", default="", help="Optional prior output jsonl")
     ap.add_argument("--top_k", type=int, default=0, help="只处理前K条（0=全部）")
+    ap.add_argument("--concurrency", type=int, default=1, help="并发请求数量")
 
     args = ap.parse_args()
+
+    if args.base_output_dir:
+        os.makedirs(os.path.dirname(args.base_output_dir), exist_ok=True)
+        if not os.path.isabs(args.out_jsonl):
+            args.out_jsonl = os.path.join(args.base_output_dir, os.path.relpath(args.out_jsonl, "."))
+        if not os.path.isabs(args.out_csv):
+            args.out_csv = os.path.join(args.base_output_dir, os.path.relpath(args.out_csv, "."))
+        if not os.path.isabs(args.issues_out):
+            args.issues_out = os.path.join(args.base_output_dir, os.path.relpath(args.issues_out, "."))
 
     csv_path = resolve_default_path(args.csv_in, "./store/enrich/papers.enriched.csv")
     compute_path = resolve_default_path(args.compute_jsonl, "./store/compute/gpu_compute.jsonl")
@@ -364,14 +377,11 @@ def main() -> None:
         resume_path = args.resume_from or args.out_jsonl
         existing_idx = {r.get("paper_id"): r for r in load_jsonl(resume_path)}
 
-    results: List[Dict[str, Any]] = []
-    issues: List[Dict[str, Any]] = []
-
     rows_iter = meta_rows
     if args.top_k and args.top_k > 0:
         rows_iter = meta_rows[:args.top_k]
 
-    for row in tqdm(rows_iter, desc="LLM enrich", unit="paper"):
+    def process_one(idx: int, row: Dict[str, Any]) -> Dict[str, Any]:
         row = ensure_ids(dict(row))
         pid = row.get("paper_id")
         source_hash = row.get("source_hash")
@@ -383,10 +393,11 @@ def main() -> None:
         out = dict(row)
         out["paper_id"] = pid
         out["source_hash"] = source_hash
+        out.setdefault("task_logs", [])
 
         existing = existing_idx.get(pid) if args.resume else None
         if existing and existing.get("source_hash") == source_hash:
-            out.update(existing)
+            out.update(dict(existing))
 
         contexts = ""
         if compute_row:
@@ -410,6 +421,7 @@ def main() -> None:
             }
             prompt = task.prompt_template.format(**prompt_vars)
 
+            start_ts = time.time()
             try:
                 resp = provider.generate(
                     prompt=prompt,
@@ -418,12 +430,14 @@ def main() -> None:
                     max_output_tokens=task.max_output_tokens,
                     response_format=task.response_format,
                 )
+                elapsed_ms = int((time.time() - start_ts) * 1000)
                 out[task.model_field] = resp.model
                 out[task.usage_field] = {
                     "prompt_tokens": resp.usage.prompt_tokens,
                     "output_tokens": resp.usage.output_tokens,
                     "total_tokens": resp.usage.total_tokens,
                 }
+                out[f"{task.name}_elapsed_ms"] = elapsed_ms
 
                 if task.name == "compute":
                     parsed = parse_json_from_text(resp.text)
@@ -441,15 +455,46 @@ def main() -> None:
                     out[task.status_field] = "ok"
 
                 out[task.error_field] = None
+                out["task_logs"].append({
+                    "task": task.name,
+                    "model": resp.model,
+                    "status": out.get(task.status_field),
+                    "elapsed_ms": elapsed_ms,
+                    "prompt_tokens": resp.usage.prompt_tokens,
+                    "output_tokens": resp.usage.output_tokens,
+                    "total_tokens": resp.usage.total_tokens,
+                    "started_at": start_ts,
+                })
             except Exception as e:
+                elapsed_ms = int((time.time() - start_ts) * 1000)
                 out[task.status_field] = "error"
                 out[task.error_field] = str(e)
+                out[f"{task.name}_elapsed_ms"] = elapsed_ms
+                out["task_logs"].append({
+                    "task": task.name,
+                    "model": out.get(task.model_field),
+                    "status": "error",
+                    "elapsed_ms": elapsed_ms,
+                    "prompt_tokens": None,
+                    "output_tokens": None,
+                    "total_tokens": None,
+                    "started_at": start_ts,
+                    "error": str(e),
+                })
+        return {"idx": idx, "data": out}
 
-        results.append(out)
+    results: List[Dict[str, Any]] = [None] * len(rows_iter)
+    with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
+        futures = [ex.submit(process_one, i, row) for i, row in enumerate(rows_iter)]
+        for fut in tqdm(as_completed(futures), total=len(futures), desc="LLM enrich", unit="paper"):
+            res = fut.result()
+            results[res["idx"]] = res["data"]
 
+    issues: List[Dict[str, Any]] = []
+    for out in results:
         if any(out.get(t.status_field) not in {None, "ok"} for t in tasks):
             issues.append({
-                "paper_id": pid,
+                "paper_id": out.get("paper_id"),
                 "title": out.get("title"),
                 "status": "error",
             })
@@ -471,6 +516,8 @@ def main() -> None:
             "compute_training_time": compute_structured.get("training_time"),
             "compute_gpu_hours": compute_structured.get("gpu_hours"),
             "compute_confidence": compute_structured.get("confidence"),
+            "translate_elapsed_ms": r.get("translate_elapsed_ms"),
+            "compute_elapsed_ms": r.get("compute_elapsed_ms"),
             "translate_status": r.get("translate_status"),
             "compute_status": r.get("compute_status"),
             "translate_prompt_tokens": (r.get("translate_usage") or {}).get("prompt_tokens"),
@@ -486,6 +533,7 @@ def main() -> None:
         "abstract_zh", "compute_summary_zh",
         "compute_gpu_models", "compute_gpu_count", "compute_gpu_memory_gb",
         "compute_training_time", "compute_gpu_hours", "compute_confidence",
+        "translate_elapsed_ms", "compute_elapsed_ms",
         "translate_status", "compute_status",
         "translate_prompt_tokens", "translate_output_tokens",
         "compute_prompt_tokens", "compute_output_tokens",

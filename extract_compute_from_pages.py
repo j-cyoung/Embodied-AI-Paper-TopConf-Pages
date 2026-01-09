@@ -410,9 +410,10 @@ def main():
     ap.add_argument("--pages_jsonl", default="papers.pages.jsonl", help="papers.pages.jsonl")
     ap.add_argument("--in_jsonl", default="", help="兼容旧参数名")
     ap.add_argument("--csv_in", default="papers.enriched.csv")
-    ap.add_argument("--out_jsonl", default="./store/compute/gpu_compute.jsonl")
-    ap.add_argument("--out_csv", default="./store/compute/gpu_compute.csv")
-    ap.add_argument("--issues_out", default="./store/compute/gpu_compute_issues.csv")
+    ap.add_argument("--out_jsonl", default="gpu_compute.jsonl")
+    ap.add_argument("--out_csv", default="gpu_compute.csv")
+    ap.add_argument("--issues_out", default="gpu_compute_issues.csv")
+    ap.add_argument("--base_output_dir", default="./store/compute/", help="输出根目录（相对路径会拼接到该目录）")
     ap.add_argument("--max_pages", type=int, default=0, help="只扫描前N页（0=全部）")
     ap.add_argument("--max_coarse", type=int, default=20)
     ap.add_argument("--max_fine", type=int, default=12)
@@ -423,6 +424,15 @@ def main():
     ap.add_argument("--resume", action="store_true", default=False)
     ap.add_argument("--resume_from", default="", help="Optional path to prior output jsonl")
     args = ap.parse_args()
+
+    if args.base_output_dir:
+        os.makedirs(os.path.dirname(args.base_output_dir), exist_ok=True)
+        if not os.path.isabs(args.out_jsonl):
+            args.out_jsonl = os.path.join(args.base_output_dir, os.path.relpath(args.out_jsonl, "."))
+        if not os.path.isabs(args.out_csv):
+            args.out_csv = os.path.join(args.base_output_dir, os.path.relpath(args.out_csv, "."))
+        if not os.path.isabs(args.issues_out):
+            args.issues_out = os.path.join(args.base_output_dir, os.path.relpath(args.issues_out, "."))
 
     pages_path = args.pages_jsonl or args.in_jsonl
     if not pages_path:

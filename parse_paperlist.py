@@ -292,12 +292,22 @@ def load_existing_rows(path: Optional[str]) -> Dict[str, Dict[str, str]]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("md_path", help="Input markdown file (paper list)")
-    ap.add_argument("--out_csv", default="./store/parse/papers.csv")
-    ap.add_argument("--out_jsonl", default="./store/parse/papers.jsonl")
-    ap.add_argument("--issues_out", default="./store/parse/papers.parse_issues.jsonl")
+    ap.add_argument("--out_csv", default="papers.csv")
+    ap.add_argument("--out_jsonl", default="papers.jsonl")
+    ap.add_argument("--issues_out", default="papers.parse_issues.jsonl")
+    ap.add_argument("--base_output_dir", default="./store/parse", help="输出根目录（相对路径会拼接到该目录）")
     ap.add_argument("--resume", action="store_true", default=False)
     ap.add_argument("--resume_from", default="", help="Optional path to prior parse output (csv/jsonl)")
     args = ap.parse_args()
+
+    if args.base_output_dir:
+        os.makedirs(os.path.dirname(args.base_output_dir), exist_ok=True)
+        if not os.path.isabs(args.out_csv):
+            args.out_csv = os.path.join(args.base_output_dir, os.path.relpath(args.out_csv, "."))
+        if not os.path.isabs(args.out_jsonl):
+            args.out_jsonl = os.path.join(args.base_output_dir, os.path.relpath(args.out_jsonl, "."))
+        if not os.path.isabs(args.issues_out):
+            args.issues_out = os.path.join(args.base_output_dir, os.path.relpath(args.issues_out, "."))
 
     with open(args.md_path, "r", encoding="utf-8") as f:
         md_text = f.read()
