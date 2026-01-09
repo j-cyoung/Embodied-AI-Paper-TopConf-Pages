@@ -2,24 +2,20 @@
 # -*- coding: utf-8 -*-
 
 import os
-import re
 import csv
 import json
 import argparse
 from typing import Dict, Any, List, Optional, Tuple
 from tqdm import tqdm
 
-ARXIV_ID_RE = re.compile(r"\b(\d{4}\.\d{4,5})(v\d+)?\b")
-
-def safe_filename(s: str, max_len: int = 180) -> str:
-    s = re.sub(r"[^\w\-.() ]+", "_", (s or "").strip())
-    if len(s) > max_len:
-        s = s[:max_len]
-    return s or "paper"
-
-def load_csv(path: str) -> List[Dict[str, str]]:
-    with open(path, "r", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+from paper_utils import (
+    build_pdf_indices,
+    expected_pdf_name,
+    find_pdf_for_row,
+    list_pdfs,
+    load_csv,
+    md_path_for_row,
+)
 
 def load_pages_jsonl(path: str) -> Dict[str, Dict[str, Any]]:
     """
@@ -41,97 +37,6 @@ def load_pages_jsonl(path: str) -> Dict[str, Dict[str, Any]]:
             if key:
                 idx[key] = obj
     return idx
-
-def list_pdfs(pdf_dir: str) -> List[str]:
-    if not os.path.isdir(pdf_dir):
-        return []
-    out = []
-    for fn in os.listdir(pdf_dir):
-        if fn.lower().endswith(".pdf"):
-            out.append(os.path.join(pdf_dir, fn))
-    return out
-
-def build_pdf_indices(pdf_paths: List[str]) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
-    """
-    - by_arxiv: arxiv_id -> [pdf_paths] （文件名包含 2506.01953 的）
-    - by_title_token: token -> [pdf_paths] （用于弱匹配）
-    """
-    by_arxiv: Dict[str, List[str]] = {}
-    by_token: Dict[str, List[str]] = {}
-
-    for p in pdf_paths:
-        bn = os.path.basename(p)
-        m = ARXIV_ID_RE.search(bn)
-        if m:
-            aid = m.group(1) + (m.group(2) or "")
-            by_arxiv.setdefault(aid, []).append(p)
-
-        # token index（非常弱匹配：只取一些长 token）
-        tokens = re.split(r"[_\-\s]+", bn.lower())
-        for t in tokens:
-            if len(t) >= 8 and t.isalnum():
-                by_token.setdefault(t, []).append(p)
-
-    return by_arxiv, by_token
-
-def expected_pdf_name(arxiv_id: str, title: str) -> str:
-    base = safe_filename(f"{arxiv_id}_{title}".strip("_"))
-    return base + ".pdf"
-
-def find_pdf_for_row(row: Dict[str, str], pdf_dir: str,
-                     by_arxiv: Dict[str, List[str]], by_token: Dict[str, List[str]]) -> Tuple[Optional[str], str]:
-    """
-    返回 (pdf_path, reason)
-    reason:
-      - exact_name
-      - arxiv_in_name
-      - title_token_match
-      - not_found
-      - skip_row
-    """
-    title = (row.get("title") or "").strip()
-    arxiv_id = (row.get("arxiv_id") or "").strip()
-
-    # 跳过明显无效行（比如 title/paper_url 都空的 TOC 垃圾行）
-    paper_url = (row.get("paper_url") or "").strip()
-    pdf_url = (row.get("pdf_url") or "").strip()
-    if not title and not paper_url and not pdf_url and not arxiv_id:
-        return None, "skip_row"
-
-    # 1) exact expected name
-    exp = expected_pdf_name(arxiv_id, title) if (arxiv_id or title) else ""
-    if exp:
-        cand = os.path.join(pdf_dir, exp)
-        if os.path.exists(cand) and os.path.getsize(cand) > 1024:
-            return cand, "exact_name"
-
-    # 2) arxiv id appears in filename
-    if arxiv_id and arxiv_id in by_arxiv:
-        # 若多个候选，取文件最大者（一般是完整版）
-        cands = sorted(by_arxiv[arxiv_id], key=lambda p: os.path.getsize(p), reverse=True)
-        return cands[0], "arxiv_in_name"
-
-    # 3) title token weak match (only if title exists)
-    if title:
-        # 用 safe_filename 后的 token 去匹配
-        stitle = safe_filename(title).lower()
-        tokens = [t for t in re.split(r"[_\-\s]+", stitle) if len(t) >= 8 and t.isalnum()]
-        hits = []
-        for t in tokens[:8]:
-            hits.extend(by_token.get(t, []))
-        hits = list(dict.fromkeys(hits))  # dedup preserve order
-
-        if hits:
-            hits = sorted(hits, key=lambda p: os.path.getsize(p), reverse=True)
-            return hits[0], "title_token_match"
-
-    return None, "not_found"
-
-def md_path_for_row(row: Dict[str, str], md_dir: str) -> str:
-    title = (row.get("title") or "").strip()
-    arxiv_id = (row.get("arxiv_id") or "").strip()
-    doc_id = arxiv_id if arxiv_id else safe_filename(title or "paper")
-    return os.path.join(md_dir, safe_filename(doc_id) + ".md")
 
 def main():
     ap = argparse.ArgumentParser()

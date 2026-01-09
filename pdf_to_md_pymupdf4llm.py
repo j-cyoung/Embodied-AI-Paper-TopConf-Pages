@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import os
-import csv
 import json
 import argparse
 from typing import Dict, Any, List, Optional, Union
@@ -10,66 +9,20 @@ from typing import Dict, Any, List, Optional, Union
 import pymupdf4llm
 from tqdm import tqdm
 
+from paper_utils import (
+    build_pdf_indices,
+    compute_paper_id,
+    compute_source_hash,
+    find_pdf_for_row,
+    list_pdfs,
+    load_csv,
+    load_jsonl,
+    md_path_for_row,
+)
+
 
 def safe_mkdir(p: str):
     os.makedirs(p, exist_ok=True)
-
-
-def load_csv(path: str) -> List[Dict[str, str]]:
-    with open(path, "r", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
-
-
-def safe_filename(s: str, max_len: int = 180) -> str:
-    import re
-    s = re.sub(r"[^\w\-.() ]+", "_", (s or "").strip())
-    return (s[:max_len] if len(s) > max_len else s) or "paper"
-
-
-def pick_pdf_path(row: Dict[str, str], pdf_dir: str) -> Optional[str]:
-    """
-    更鲁棒的 PDF 匹配：
-    1) 先按 enrich 的 expected name 精确匹配
-    2) 再在 pdf_dir 里扫描：文件名包含 arxiv_id
-    3) 再做 title token 弱匹配
-    """
-    arxiv_id = (row.get("arxiv_id") or "").strip()
-    title = (row.get("title") or "").strip()
-
-    # 1) exact expected name
-    base = safe_filename(f"{arxiv_id}_{title}".strip("_"))
-    cand = os.path.join(pdf_dir, base + ".pdf")
-    if os.path.exists(cand) and os.path.getsize(cand) > 1024:
-        return cand
-
-    # 2) scan by arxiv_id substring in filename
-    if arxiv_id:
-        for fn in os.listdir(pdf_dir):
-            if fn.lower().endswith(".pdf") and arxiv_id in fn:
-                p = os.path.join(pdf_dir, fn)
-                if os.path.getsize(p) > 1024:
-                    return p
-
-    # 3) weak match by title tokens
-    stitle = safe_filename(title).lower()
-    tokens = [t for t in re.split(r"[_\-\s]+", stitle) if len(t) >= 8 and t.isalnum()]
-    if tokens:
-        pdfs = [fn for fn in os.listdir(pdf_dir) if fn.lower().endswith(".pdf")]
-        for fn in pdfs:
-            low = fn.lower()
-            hit = sum(1 for t in tokens[:8] if t in low)
-            if hit >= 2:  # 阈值可调
-                p = os.path.join(pdf_dir, fn)
-                if os.path.getsize(p) > 1024:
-                    return p
-
-    # 4) fallback: title-only exact
-    cand2 = os.path.join(pdf_dir, safe_filename(title) + ".pdf")
-    if os.path.exists(cand2) and os.path.getsize(cand2) > 1024:
-        return cand2
-
-    return None
-
 
 def convert_one_pdf(
     pdf_path: str,
@@ -120,12 +73,44 @@ def build_md_text_from_pages(md_pages_sanitized: List[Dict[str, Any]]) -> str:
     return "".join(joined)
 
 
+def ensure_ids(row: Dict[str, Any]) -> Dict[str, Any]:
+    if not row.get("paper_id"):
+        row["paper_id"] = compute_paper_id(
+            row.get("venue"),
+            row.get("category"),
+            row.get("alias"),
+            row.get("title"),
+            row.get("paper_url"),
+            row.get("page_url"),
+        )
+    if not row.get("source_hash"):
+        raw_line = row.get("raw_line") or row.get("title") or ""
+        row["source_hash"] = compute_source_hash(
+            row.get("venue"), row.get("category"), raw_line
+        )
+    return row
+
+
+def load_existing_pages(path: Optional[str]) -> Dict[str, Dict[str, Any]]:
+    if not path or not os.path.exists(path):
+        return {}
+    rows = load_jsonl(path)
+    idx: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        r = ensure_ids(r)
+        pid = r.get("paper_id")
+        if pid:
+            idx[pid] = r
+    return idx
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv_in", required=True, help="papers.enriched.csv")
     ap.add_argument("--pdf_dir", default="pdfs")
     ap.add_argument("--md_dir", default="mds")
-    ap.add_argument("--out_jsonl", default="papers.pages.jsonl")
+    ap.add_argument("--out_jsonl", default="./store/ocr/papers.pages.jsonl")
+    ap.add_argument("--issues_out", default="./store/ocr/papers.md_issues.csv")
 
     ap.add_argument("--page_chunks", action="store_true", default=True,
                     help="page_chunks=True: 输出按页 chunks（推荐）；否则输出整篇 markdown 字符串")
@@ -143,6 +128,8 @@ def main():
                     help="打印每篇论文的处理信息（title/arxiv_id/status/path）")
     ap.add_argument("--no_tqdm", action="store_true", default=False,
                     help="Disable tqdm progress bar")
+    ap.add_argument("--resume", action="store_true", default=False)
+    ap.add_argument("--resume_from", default="", help="Optional path to prior pages jsonl")
 
     args = ap.parse_args()
 
@@ -154,6 +141,15 @@ def main():
     if args.write_images:
         safe_mkdir(args.image_dir)
 
+    # Build PDF indices for faster lookup
+    pdf_paths = list_pdfs(args.pdf_dir)
+    by_arxiv, by_token = build_pdf_indices(pdf_paths)
+
+    existing_idx: Dict[str, Dict[str, Any]] = {}
+    if args.resume:
+        resume_path = args.resume_from or args.out_jsonl
+        existing_idx = load_existing_pages(resume_path)
+
     # 写 jsonl
     out_f = open(args.out_jsonl, "w", encoding="utf-8")
 
@@ -164,19 +160,36 @@ def main():
     n_ok = 0
     n_missing = 0
     n_error = 0
+    issues: List[Dict[str, Any]] = []
 
     for idx, row in enumerate(iterator, start=1):
+        row = ensure_ids(dict(row))
         title = (row.get("title") or "").strip()
         arxiv_id = (row.get("arxiv_id") or "").strip()
-        doc_id = arxiv_id or safe_filename(title or "paper")
-        md_path = os.path.join(args.md_dir, safe_filename(doc_id) + ".md")
+        md_path = md_path_for_row(row, args.md_dir)
 
-        pdf_path = pick_pdf_path(row, args.pdf_dir)
+        if args.resume and row.get("paper_id") in existing_idx:
+            old = existing_idx[row["paper_id"]]
+            if old.get("source_hash") == row.get("source_hash") and old.get("md_status") == "ok":
+                md_exists = os.path.exists(md_path) and os.path.getsize(md_path) > 256
+                if md_exists:
+                    merged = dict(old)
+                    merged.update(row)
+                    merged["md_path"] = md_path
+                    merged["json_written"] = True
+                    out_f.write(json.dumps(merged, ensure_ascii=False) + "\n")
+                    n_ok += 1
+                    if args.verbose:
+                        print(f"[{idx}] resume_ok | arxiv_id={arxiv_id} | md={md_path} | title={title[:80]}")
+                    continue
+
+        pdf_path, find_reason = find_pdf_for_row(row, args.pdf_dir, by_arxiv, by_token)
         if not pdf_path:
             n_missing += 1
             obj = dict(row)
             obj.update({
                 "pdf_path": None,
+                "pdf_find_reason": find_reason,
                 "md_path": md_path,
                 "md_status": "missing_pdf",
                 "parse_ok": False,
@@ -185,6 +198,13 @@ def main():
                 "md_error": None,
             })
             out_f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+            issues.append({
+                "paper_id": obj.get("paper_id"),
+                "title": title,
+                "md_status": obj.get("md_status"),
+                "md_error": obj.get("md_error"),
+                "pdf_find_reason": find_reason,
+            })
             if args.verbose:
                 print(f"[{idx}] missing_pdf | arxiv_id={arxiv_id} | title={title[:80]}")
             continue
@@ -198,6 +218,7 @@ def main():
         obj = dict(row)
         obj.update({
             "pdf_path": pdf_path,
+            "pdf_find_reason": find_reason,
             "md_path": md_path,
             "md_status": "init",
             "parse_ok": False,
@@ -272,12 +293,31 @@ def main():
 
             out_f.write(json.dumps(obj, ensure_ascii=False) + "\n")
             n_error += 1
+            issues.append({
+                "paper_id": obj.get("paper_id"),
+                "title": title,
+                "md_status": obj.get("md_status"),
+                "md_error": obj.get("md_error"),
+                "pdf_find_reason": obj.get("pdf_find_reason"),
+            })
 
             if args.verbose:
                 print(f"[{idx}] {obj['md_status']} | arxiv_id={arxiv_id} | title={title[:80]} | err={md_error}")
 
     out_f.close()
+    if issues:
+        # small issue report for quick inspection
+        fieldnames = ["paper_id", "title", "md_status", "md_error", "pdf_find_reason"]
+        with open(args.issues_out, "w", encoding="utf-8", newline="") as f:
+            import csv
+            w = csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            for r in issues:
+                w.writerow(r)
+
     print(f"Done. ok={n_ok}, error={n_error}, missing_pdf={n_missing}, out={args.out_jsonl}, md_dir={args.md_dir}")
+    if issues:
+        print(f"Issues: {len(issues)} -> {args.issues_out}")
 
 
 if __name__ == "__main__":

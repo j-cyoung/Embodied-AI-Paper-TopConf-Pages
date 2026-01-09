@@ -4,16 +4,24 @@
 import re
 import json
 import argparse
+import os
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Tuple
+
+from paper_utils import (
+    compute_paper_id,
+    compute_source_hash,
+    load_csv,
+    load_jsonl,
+    normalize_space,
+    write_csv,
+    write_jsonl,
+)
 
 LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 H1_RE = re.compile(r"^#\s+(?!#)(.+?)\s*$")       # "# NeuIPS2025"
 H2_RE = re.compile(r"^##\s+(?!#)(.+?)\s*$")      # "## Vision-Language-Action Model"
 BULLET_RE = re.compile(r"^\s*-\s+(.*)$")
-
-def normalize_space(s: str) -> str:
-    return re.sub(r"\s+", " ", s).strip()
 
 def parse_year_from_venue(venue: str) -> Optional[int]:
     m = re.search(r"(19|20)\d{2}", venue)
@@ -94,6 +102,10 @@ def pick_urls(links: List[Tuple[str, str]]) -> Tuple[Optional[str], Optional[str
     other = {k: v for k, v in grouped.items() if k not in {"paper", "pdf", "page", "project", "website", "home"}}
     return paper_url, page_url, other
 
+def is_toc_heading(text: str) -> bool:
+    t = normalize_space(text).lower()
+    return "paper list" in t
+
 def is_toc_line(bullet_text: str) -> bool:
     """
     Skip table-of-contents bullets like:
@@ -110,8 +122,22 @@ def is_toc_line(bullet_text: str) -> bool:
         return True
     return False
 
+def title_from_links(text_wo_links: str, links: List[Tuple[str, str]]) -> str:
+    if text_wo_links:
+        return text_wo_links
+    if not links:
+        return ""
+    label = (links[0][0] or "").strip()
+    if not label:
+        return ""
+    if label.lower() in {"paper", "pdf", "page", "project", "website", "home"}:
+        return ""
+    return normalize_space(label)
+
 @dataclass
 class PaperRow:
+    paper_id: str
+    source_hash: str
     venue: str
     year: Optional[int]
     category: Optional[str]
@@ -121,24 +147,43 @@ class PaperRow:
     page_url: Optional[str]
     other_urls: str
     raw_line: str
+    parse_status: str
+    parse_error: Optional[str]
 
-def parse_markdown(md_text: str) -> List[PaperRow]:
+@dataclass
+class ParseIssue:
+    line_no: int
+    reason: str
+    raw_line: str
+    venue: Optional[str]
+    category: Optional[str]
+
+def parse_markdown(md_text: str) -> Tuple[List[PaperRow], List[ParseIssue]]:
     rows: List[PaperRow] = []
+    issues: List[ParseIssue] = []
     venue: Optional[str] = None
     category: Optional[str] = None
+    in_toc = False
 
-    for line in md_text.splitlines():
+    for line_no, line in enumerate(md_text.splitlines(), start=1):
         line = line.rstrip()
 
         h1 = H1_RE.match(line)
         if h1:
             venue = normalize_space(h1.group(1))
             category = None
+            in_toc = False
             continue
 
         h2 = H2_RE.match(line)
         if h2:
-            category = normalize_space(h2.group(1))
+            heading = normalize_space(h2.group(1))
+            if is_toc_heading(heading):
+                in_toc = True
+                category = None
+                continue
+            if not in_toc:
+                category = heading
             continue
 
         b = BULLET_RE.match(line)
@@ -148,13 +193,49 @@ def parse_markdown(md_text: str) -> List[PaperRow]:
         bullet_text = b.group(1).strip()
         if not bullet_text:
             continue
+        if in_toc:
+            issues.append(ParseIssue(
+                line_no=line_no,
+                reason="toc_block",
+                raw_line=line.strip(),
+                venue=venue,
+                category=category,
+            ))
+            continue
+        if not venue:
+            issues.append(ParseIssue(
+                line_no=line_no,
+                reason="missing_venue",
+                raw_line=line.strip(),
+                venue=venue,
+                category=category,
+            ))
+            continue
         if is_toc_line(bullet_text):
+            issues.append(ParseIssue(
+                line_no=line_no,
+                reason="toc_anchor",
+                raw_line=line.strip(),
+                venue=venue,
+                category=category,
+            ))
             continue
 
         # extract links
         links = LINK_RE.findall(bullet_text)
         text_wo_links = LINK_RE.sub("", bullet_text)
         text_wo_links = normalize_space(text_wo_links)
+        text_wo_links = title_from_links(text_wo_links, links)
+
+        if not text_wo_links:
+            issues.append(ParseIssue(
+                line_no=line_no,
+                reason="missing_title",
+                raw_line=line.strip(),
+                venue=venue,
+                category=category,
+            ))
+            continue
 
         alias, title = extract_alias_and_title(text_wo_links)
         paper_url, page_url, other = pick_urls(links)
@@ -162,9 +243,13 @@ def parse_markdown(md_text: str) -> List[PaperRow]:
         # If venue is still None, keep but mark unknown (you也可以选择直接跳过)
         v = venue or "UNKNOWN"
         y = parse_year_from_venue(v)
+        source_hash = compute_source_hash(v, category, line.strip())
+        paper_id = compute_paper_id(v, category, alias, title, paper_url, page_url)
 
         rows.append(
             PaperRow(
+                paper_id=paper_id,
+                source_hash=source_hash,
                 venue=v,
                 year=y,
                 category=category,
@@ -174,45 +259,83 @@ def parse_markdown(md_text: str) -> List[PaperRow]:
                 page_url=page_url,
                 other_urls=json.dumps(other, ensure_ascii=False),
                 raw_line=line.strip(),
+                parse_status="ok",
+                parse_error=None,
             )
         )
 
-    return rows
+    return rows, issues
 
-def write_csv(rows: List[PaperRow], path: str) -> None:
-    import csv
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "venue", "year", "category", "alias", "title",
-                "paper_url", "page_url", "other_urls", "raw_line"
-            ],
-        )
-        writer.writeheader()
-        for r in rows:
-            writer.writerow(asdict(r))
-
-def write_jsonl(rows: List[PaperRow], path: str) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(asdict(r), ensure_ascii=False) + "\n")
+def load_existing_rows(path: Optional[str]) -> Dict[str, Dict[str, str]]:
+    if not path or not os.path.exists(path):
+        return {}
+    if path.endswith(".jsonl"):
+        rows = load_jsonl(path)
+    else:
+        rows = load_csv(path)
+    idx: Dict[str, Dict[str, str]] = {}
+    for r in rows:
+        pid = r.get("paper_id")
+        if not pid:
+            pid = compute_paper_id(
+                r.get("venue"),
+                r.get("category"),
+                r.get("alias"),
+                r.get("title"),
+                r.get("paper_url"),
+                r.get("page_url"),
+            )
+        if pid:
+            idx[pid] = r
+    return idx
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("md_path", help="Input markdown file (paper list)")
-    ap.add_argument("--out_csv", default="papers.csv")
-    ap.add_argument("--out_jsonl", default="papers.jsonl")
+    ap.add_argument("--out_csv", default="./store/parse/papers.csv")
+    ap.add_argument("--out_jsonl", default="./store/parse/papers.jsonl")
+    ap.add_argument("--issues_out", default="./store/parse/papers.parse_issues.jsonl")
+    ap.add_argument("--resume", action="store_true", default=False)
+    ap.add_argument("--resume_from", default="", help="Optional path to prior parse output (csv/jsonl)")
     args = ap.parse_args()
 
     with open(args.md_path, "r", encoding="utf-8") as f:
         md_text = f.read()
 
-    rows = parse_markdown(md_text)
-    write_csv(rows, args.out_csv)
-    write_jsonl(rows, args.out_jsonl)
+    rows, issues = parse_markdown(md_text)
 
-    print(f"Parsed {len(rows)} papers.")
+    preferred_fields = [
+        "paper_id", "source_hash",
+        "venue", "year", "category", "alias", "title",
+        "paper_url", "page_url", "other_urls", "raw_line",
+        "parse_status", "parse_error",
+    ]
+
+    out_rows: List[Dict[str, str]] = []
+    existing_idx: Dict[str, Dict[str, str]] = {}
+    if args.resume:
+        resume_path = args.resume_from or (args.out_jsonl if os.path.exists(args.out_jsonl) else args.out_csv)
+        existing_idx = load_existing_rows(resume_path)
+
+    for r in rows:
+        row = asdict(r)
+        if args.resume and row.get("paper_id") in existing_idx:
+            old = existing_idx[row["paper_id"]]
+            if old.get("source_hash") == row.get("source_hash") and old.get("parse_status", "ok") == "ok":
+                merged = dict(old)
+                merged.update(row)
+                out_rows.append(merged)
+                continue
+        out_rows.append(row)
+
+    write_csv(args.out_csv, out_rows, preferred_fields=preferred_fields)
+    write_jsonl(args.out_jsonl, out_rows)
+    if issues:
+        write_jsonl(args.issues_out, [asdict(i) for i in issues])
+
+    print(f"Parsed {len(out_rows)} papers.")
+    if issues:
+        print(f"Parse issues: {len(issues)} -> {args.issues_out}")
     print(f"CSV  -> {args.out_csv}")
     print(f"JSONL-> {args.out_jsonl}")
 

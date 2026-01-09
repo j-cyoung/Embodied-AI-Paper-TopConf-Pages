@@ -3,31 +3,30 @@
 
 import os
 import re
-import csv
 import json
 import time
-import hashlib
 import argparse
-from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any, List, Tuple
 
 import requests
 from tqdm import tqdm
+
+from paper_utils import (
+    compute_paper_id,
+    compute_source_hash,
+    load_csv,
+    load_jsonl,
+    safe_filename,
+    sha1_text,
+    write_csv,
+    write_jsonl,
+)
 
 ARXIV_ID_RE = re.compile(
     r"(?:arxiv\.org/(?:abs|pdf)/)(?P<id>\d{4}\.\d{4,5})(?P<v>v\d+)?",
     re.IGNORECASE
 )
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
-
-def safe_filename(s: str, max_len: int = 180) -> str:
-    s = re.sub(r"[^\w\-.() ]+", "_", s).strip()
-    if len(s) > max_len:
-        s = s[:max_len]
-    return s
-
-def sha1(s: str) -> str:
-    return hashlib.sha1(s.encode("utf-8")).hexdigest()
 
 def is_pdf_url(url: str) -> bool:
     u = (url or "").lower()
@@ -279,7 +278,7 @@ def enrich_one(row: Dict[str, str], cache: Dict[str, Any], sleep_s: float = 0.8)
 
         # 4.3 Fallback: search by title
         if not s2_meta and title:
-            key = f"s2search:{sha1(title)}"
+            key = f"s2search:{sha1_text(title)}"
             if key in cache:
                 sr = cache[key]
             else:
@@ -336,47 +335,6 @@ def enrich_one(row: Dict[str, str], cache: Dict[str, Any], sleep_s: float = 0.8)
 
     return out
 
-def load_csv(path: str) -> List[Dict[str, str]]:
-    with open(path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        return list(reader)
-
-def write_csv(path: str, rows: List[Dict[str, Any]]) -> None:
-    if not rows:
-        return
-
-    # 取所有行 key 的并集，保证不会因为“后面行多了字段”而报错
-    field_set = set()
-    for r in rows:
-        field_set.update(r.keys())
-
-    # 给字段一个稳定顺序：优先常用字段，其余按字母序
-    preferred = [
-        "venue","year","category","alias","title",
-        "paper_url","page_url","other_urls","raw_line",
-        "arxiv_id","doi","canonical_url",
-        "abstract","authors","published",
-        "pdf_url","pdf_download_error",
-        "source","status","error",
-    ]
-    fields = []
-    for k in preferred:
-        if k in field_set:
-            fields.append(k)
-            field_set.remove(k)
-    fields += sorted(field_set)
-
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
-
-def write_jsonl(path: str, rows: List[Dict[str, Any]]) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-
 def load_cache(cache_path: str) -> Dict[str, Any]:
     cache: Dict[str, Any] = {}
     if not os.path.exists(cache_path):
@@ -394,16 +352,68 @@ def append_cache(cache_path: str, k: str, v: Any) -> None:
     with open(cache_path, "a", encoding="utf-8") as f:
         f.write(json.dumps({"k": k, "v": v}, ensure_ascii=False) + "\n")
 
+def ensure_ids(row: Dict[str, Any]) -> Dict[str, Any]:
+    if not row.get("paper_id"):
+        row["paper_id"] = compute_paper_id(
+            row.get("venue"),
+            row.get("category"),
+            row.get("alias"),
+            row.get("title"),
+            row.get("paper_url"),
+            row.get("page_url"),
+        )
+    if not row.get("source_hash"):
+        raw_line = row.get("raw_line") or row.get("title") or ""
+        row["source_hash"] = compute_source_hash(
+            row.get("venue"), row.get("category"), raw_line
+        )
+    return row
+
+def load_existing_records(path: Optional[str]) -> Dict[str, Dict[str, Any]]:
+    if not path or not os.path.exists(path):
+        return {}
+    if path.endswith(".jsonl"):
+        rows = load_jsonl(path)
+    else:
+        rows = load_csv(path)
+    idx: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        r = ensure_ids(r)
+        pid = r.get("paper_id")
+        if pid:
+            idx[pid] = r
+    return idx
+
+def should_reuse(existing: Dict[str, Any], source_hash: str, require_pdf: bool) -> bool:
+    if not existing:
+        return False
+    if existing.get("source_hash") != source_hash:
+        return False
+    status = existing.get("status") or existing.get("enrich_status") or ""
+    if status != "ok":
+        return False
+    if require_pdf:
+        pdf_path = (existing.get("pdf_path") or "").strip()
+        if existing.get("pdf_download_status") == "ok":
+            if pdf_path and os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 1024:
+                return True
+            return False
+        return False
+    return True
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("csv_in")
-    ap.add_argument("--out_csv", default="papers.enriched.csv")
-    ap.add_argument("--out_jsonl", default="papers.enriched.jsonl")
-    ap.add_argument("--pdf_dir", default="pdfs")
+    ap.add_argument("--out_csv", default="./store/enrich/papers.enriched.csv")
+    ap.add_argument("--out_jsonl", default="./store/enrich/papers.enriched.jsonl")
+    ap.add_argument("--pdf_dir", default="./store/enrich/pdfs")
     ap.add_argument("--download_pdf", action="store_true", default=False,
                     help="Download pdfs (only when pdf_url is available).")
     ap.add_argument("--sleep", type=float, default=0.8, help="Sleep between API calls to reduce rate-limit risk.")
-    ap.add_argument("--cache", default=".cache_s2.jsonl")
+    ap.add_argument("--cache", default="./store/enrich/.cache_s2.jsonl")
+    ap.add_argument("--resume", action="store_true", default=False)
+    ap.add_argument("--resume_from", default="", help="Optional path to prior enriched output (csv/jsonl)") 
+    ap.add_argument("--issues_out", default="./store/enrich/papers.enrich_issues.csv")
     args = ap.parse_args()
 
     rows = load_csv(args.csv_in)
@@ -411,19 +421,28 @@ def main():
 
     enriched: List[Dict[str, Any]] = []
 
-    # We'll track cache keys we add during run and append to file (simple append-only)
-    cache_added: List[Tuple[str, Any]] = []
-
-    def cache_set(k: str, v: Any):
-        if k not in cache:
-            cache[k] = v
-            cache_added.append((k, v))
-
     # monkey patch: wrap cache assignment inside enrich_one usage by capturing dict reference
     # (we keep enrich_one as-is but manually record new cache keys by diffing at the end)
     before_keys = set(cache.keys())
 
+    existing_idx: Dict[str, Dict[str, Any]] = {}
+    if args.resume:
+        resume_path = args.resume_from or (args.out_jsonl if os.path.exists(args.out_jsonl) else args.out_csv)
+        existing_idx = load_existing_records(resume_path)
+
     for r in tqdm(rows, desc="Enriching"):
+        r = ensure_ids(dict(r))
+        pid = r.get("paper_id")
+        source_hash = r.get("source_hash")
+
+        if args.resume and pid and pid in existing_idx:
+            old = existing_idx[pid]
+            if should_reuse(old, source_hash, require_pdf=args.download_pdf):
+                merged = dict(old)
+                merged.update(r)
+                enriched.append(merged)
+                continue
+
         try:
             out = enrich_one(r, cache=cache, sleep_s=args.sleep)
         except Exception as e:
@@ -433,6 +452,13 @@ def main():
                 "authors": None, "published": None, "pdf_url": None,
                 "source": None, "status": "error", "error": str(e)
             })
+
+        # expected pdf path (even if not downloading yet)
+        title = out.get("title") or "paper"
+        arxiv_id = out.get("arxiv_id") or ""
+        base = safe_filename(f"{arxiv_id}_{title}".strip("_")) or "paper"
+        out["pdf_path"] = os.path.join(args.pdf_dir, base + ".pdf")
+
         enriched.append(out)
 
     # Append newly added cache entries
@@ -447,27 +473,77 @@ def main():
         os.makedirs(args.pdf_dir, exist_ok=True)
         for out in tqdm(enriched, desc="Downloading PDFs"):
             pdf_url = out.get("pdf_url")
-            if not pdf_url:
-                continue
-            # file name
-            title = out.get("title") or "paper"
-            arxiv_id = out.get("arxiv_id") or ""
-            base = safe_filename(f"{arxiv_id}_{title}".strip("_")) or "paper"
-            out_path = os.path.join(args.pdf_dir, base + ".pdf")
-            if os.path.exists(out_path) and os.path.getsize(out_path) > 1024:
-                continue
-            ok, err = download_pdf(pdf_url, out_path)
-            if not ok:
-                out["pdf_download_error"] = err
+            out_path = out.get("pdf_path") or ""
 
-    write_csv(args.out_csv, enriched)
+            if out_path and os.path.exists(out_path) and os.path.getsize(out_path) > 1024:
+                out["pdf_download_status"] = "ok"
+                out["pdf_download_error"] = None
+                continue
+
+            if not pdf_url:
+                out["pdf_download_status"] = "missing_pdf_url"
+                out["pdf_download_error"] = None
+                continue
+
+            ok, err = download_pdf(pdf_url, out_path)
+            if ok:
+                out["pdf_download_status"] = "ok"
+                out["pdf_download_error"] = None
+            else:
+                out["pdf_download_status"] = "download_error"
+                out["pdf_download_error"] = err
+    else:
+        for out in enriched:
+            if "pdf_download_status" not in out:
+                out["pdf_download_status"] = "not_requested"
+
+    preferred = [
+        "paper_id", "source_hash",
+        "venue", "year", "category", "alias", "title",
+        "paper_url", "page_url", "other_urls", "raw_line",
+        "arxiv_id", "doi", "canonical_url",
+        "abstract", "authors", "published",
+        "pdf_url", "pdf_path", "pdf_download_status", "pdf_download_error",
+        "source", "status", "error",
+    ]
+
+    write_csv(args.out_csv, enriched, preferred_fields=preferred)
     write_jsonl(args.out_jsonl, enriched)
+
+    issues: List[Dict[str, Any]] = []
+    for r in enriched:
+        status = r.get("status") or ""
+        if status and status != "ok":
+            issues.append(r)
+            continue
+        if not r.get("abstract"):
+            issues.append(r)
+            continue
+        if args.download_pdf and r.get("pdf_download_status") not in {"ok", "not_requested"}:
+            issues.append(r)
+            continue
+        if not r.get("pdf_url"):
+            issues.append(r)
+
+    if issues:
+        issue_rows = [{
+            "paper_id": r.get("paper_id"),
+            "title": r.get("title"),
+            "status": r.get("status"),
+            "error": r.get("error"),
+            "pdf_url": r.get("pdf_url"),
+            "pdf_download_status": r.get("pdf_download_status"),
+            "pdf_download_error": r.get("pdf_download_error"),
+        } for r in issues]
+        write_csv(args.issues_out, issue_rows)
 
     print(f"Done. Enriched rows: {len(enriched)}")
     print(f"CSV:   {args.out_csv}")
     print(f"JSONL: {args.out_jsonl}")
     if args.download_pdf:
         print(f"PDF dir: {args.pdf_dir}")
+    if issues:
+        print(f"Issues: {len(issues)} -> {args.issues_out}")
 
 if __name__ == "__main__":
     main()

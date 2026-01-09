@@ -3,3 +3,5 @@ pdfs/*
 *.csv
 *.jsonl
 *.pdf
+backup/*
+__pycache__/
