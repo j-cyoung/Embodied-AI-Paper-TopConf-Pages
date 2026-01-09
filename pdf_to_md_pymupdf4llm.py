@@ -107,8 +107,8 @@ def load_existing_pages(path: Optional[str]) -> Dict[str, Dict[str, Any]]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv_in", required=True, help="papers.enriched.csv")
-    ap.add_argument("--pdf_dir", default="pdfs")
-    ap.add_argument("--md_dir", default="mds")
+    ap.add_argument("--pdf_dir", default="./store/ocr/pdfs")
+    ap.add_argument("--md_dir", default="./store/ocr/mds")
     ap.add_argument("--out_jsonl", default="./store/ocr/papers.pages.jsonl")
     ap.add_argument("--issues_out", default="./store/ocr/papers.md_issues.csv")
 

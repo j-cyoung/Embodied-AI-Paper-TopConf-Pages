@@ -4,4 +4,5 @@ pdfs/*
 *.jsonl
 *.pdf
 backup/*
+store/*
 __pycache__/
