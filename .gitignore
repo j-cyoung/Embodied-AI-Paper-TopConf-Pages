@@ -5,4 +5,5 @@ pdfs/*
 *.pdf
 backup/*
 store/*
+store
 __pycache__/
