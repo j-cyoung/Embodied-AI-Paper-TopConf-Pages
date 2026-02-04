@@ -369,6 +369,20 @@ def extract_sections_from_paper(
 ) -> Dict[str, str]:
     """从论文中提取指定章节的内容"""
     result = {}
+
+    def wants_full_text(names: List[str]) -> bool:
+        for name in names:
+            if not name:
+                continue
+            raw = str(name).strip()
+            if not raw:
+                continue
+            lower = raw.lower()
+            if lower in {"full_text", "full", "all", "*"}:
+                return True
+            if raw in {"全文", "全部"}:
+                return True
+        return False
     
     # 优先从abstract字段获取摘要
     if "abstract" in section_names:
@@ -383,6 +397,11 @@ def extract_sections_from_paper(
     
     # 合并所有页面的文本
     full_text = "\n".join([page.get("text", "") for page in md_pages])
+
+    if wants_full_text(section_names):
+        if full_text.strip():
+            result["full_text"] = full_text.strip()
+        return result
     
     for section_name in section_names:
         if section_name == "abstract" and "abstract" in result:
@@ -410,7 +429,10 @@ def build_prompt(
     parts = []
     
     parts.append(f"论文标题: {paper_title}\n")
-    
+
+    if sections and "full_text" in sections:
+        paper_abstract = None
+
     if paper_abstract:
         parts.append(f"摘要:\n{paper_abstract}\n")
     

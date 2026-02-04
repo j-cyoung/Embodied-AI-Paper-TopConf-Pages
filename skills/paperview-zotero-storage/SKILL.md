@@ -34,3 +34,4 @@ Keep the Zotero workflow isolated under store/zotero so it never mixes with lega
 - If the context menu item appears but is transparent or missing text, avoid `Zotero.MenuManager` + FTL l10n for the item label.
 - Preferred fix: inject a XUL `menuitem` directly into `zotero-itemmenu` with a hard `label="Query"` and attach `popupshowing` to toggle visibility.
 - Avoid `ChromeUtils.import()` in Zotero 8; use simple `window.prompt` or other APIs that do not require Services modules.
+- Keep the frontend prompt minimal (display + input only). Template parsing like `[section] question` should be handled in the backend service to reduce UI-side breakage.

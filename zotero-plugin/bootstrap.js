@@ -2,7 +2,7 @@
 
 var pluginID = null;
 var SERVICE_BASE_URL = "http://127.0.0.1:20341";
-var LAST_QUERY_SECTIONS = "abstract,introduction";
+var LAST_QUERY_SECTIONS = "full_text";
 var cleanupHandlers = [];
 
 function getServiceBaseUrl() {
@@ -109,29 +109,11 @@ function buildItemPayload(item) {
 function promptQueryText() {
   try {
     const win = Zotero.getMainWindow();
-    const text = win.prompt("请输入查询内容：", "");
+    const text = win.prompt("请输入查询内容，例：[method] 总结方法", "");
     return text && text.trim() ? text.trim() : null;
   } catch (err) {
     Zotero.debug(`[PaperView] prompt error: ${err}`);
     return null;
-  }
-}
-
-function promptQuerySections() {
-  try {
-    const win = Zotero.getMainWindow();
-    const text = win.prompt(
-      "请输入查询章节（逗号分隔，如：abstract,introduction,methods）：",
-      LAST_QUERY_SECTIONS
-    );
-    if (text === null) return null;
-    const trimmed = text.trim();
-    if (!trimmed) return LAST_QUERY_SECTIONS;
-    LAST_QUERY_SECTIONS = trimmed;
-    return trimmed;
-  } catch (err) {
-    Zotero.debug(`[PaperView] prompt sections error: ${err}`);
-    return LAST_QUERY_SECTIONS;
   }
 }
 
@@ -192,16 +174,13 @@ function attachMenuToWindow(win) {
           Zotero.debug(
             `[PaperView] Selected ${keys.length} item(s): ${keys.join(", ")}`
           );
-          const queryText = promptQueryText();
-          if (!queryText) {
+          const rawQuery = promptQueryText();
+          if (!rawQuery) {
             Zotero.debug("[PaperView] Query cancelled");
             return;
           }
-          const sectionsText = promptQuerySections();
-          if (!sectionsText) {
-            Zotero.debug("[PaperView] Query sections cancelled");
-            return;
-          }
+          const queryText = rawQuery;
+          const sectionsText = "";
           const ingest = await ingestItems(items);
           Zotero.debug(`[PaperView] Ingested: ${JSON.stringify(ingest)}`);
           await queryService(keys, queryText, sectionsText);

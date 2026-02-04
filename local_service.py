@@ -5,6 +5,7 @@ import argparse
 import json
 import subprocess
 import uuid
+import re
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -202,10 +203,27 @@ class DemoHandler(BaseHTTPRequestHandler):
     def _run_query_pipeline(self, payload):
         item_keys = payload.get("item_keys") or []
         query_text = payload.get("query") or ""
-        sections = payload.get("sections") or "abstract,introduction"
+        sections = payload.get("sections")
+        if (not sections or str(sections).strip() == "") and query_text:
+            match = re.match(r"^\s*\[([^\]]+)\]\s*(.*)$", str(query_text))
+            if match:
+                sections = match.group(1).strip()
+                query_text = (match.group(2) or "").strip()
+                payload["query"] = query_text
         if isinstance(sections, list):
             sections = ",".join([str(s).strip() for s in sections if str(s).strip()])
-        sections = str(sections).strip() or "abstract,introduction"
+        sections = str(sections).strip() if sections is not None else ""
+        tokens = [t.strip() for t in sections.split(",") if t.strip()]
+        if not tokens:
+            sections = "full_text"
+        else:
+            lowered = [t.lower() for t in tokens]
+            if any(t in {"full_text", "full", "all", "*"} for t in lowered) or any(
+                t in {"全文", "全部"} for t in tokens
+            ):
+                sections = "full_text"
+            else:
+                sections = ",".join(tokens)
         payload["sections"] = sections
         if not item_keys or not query_text:
             raise ValueError("missing item_keys or query text")

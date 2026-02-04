@@ -6,29 +6,17 @@
     <title>PaperView · Query 结果可视化</title>
     <style>
       :root {
-        color-scheme: light dark;
-        --bg: #0b1220;
-        --panel: rgba(255, 255, 255, 0.06);
-        --panel-2: rgba(255, 255, 255, 0.09);
-        --text: rgba(255, 255, 255, 0.92);
-        --muted: rgba(255, 255, 255, 0.68);
-        --border: rgba(255, 255, 255, 0.12);
-        --brand: #7c83ff;
-        --ok: #22c55e;
+        --bg: #ffffff;
+        --text: #0f172a;
+        --muted: #64748b;
+        --card: #ffffff;
+        --card2: #f8fafc;
+        --border: #e2e8f0;
+        --ok: #16a34a;
         --warn: #f59e0b;
         --err: #ef4444;
-      }
-
-      @media (prefers-color-scheme: light) {
-        :root {
-          --bg: #f6f7fb;
-          --panel: rgba(0, 0, 0, 0.04);
-          --panel-2: rgba(0, 0, 0, 0.06);
-          --text: rgba(0, 0, 0, 0.88);
-          --muted: rgba(0, 0, 0, 0.62);
-          --border: rgba(0, 0, 0, 0.12);
-          --brand: #4f46e5;
-        }
+        --info: #2563eb;
+        --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
       }
 
       * {
@@ -38,24 +26,13 @@
       body {
         margin: 0;
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
-          "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji",
-          "Segoe UI Emoji";
-        background: radial-gradient(
-            1200px 600px at 20% -10%,
-            rgba(124, 131, 255, 0.18),
-            transparent 55%
-          ),
-          radial-gradient(
-            900px 500px at 90% 10%,
-            rgba(34, 197, 94, 0.12),
-            transparent 55%
-          ),
-          var(--bg);
+          "Helvetica Neue", Arial, "Noto Sans";
+        background: var(--bg);
         color: var(--text);
       }
 
       a {
-        color: var(--brand);
+        color: var(--info);
         text-decoration: none;
       }
       a:hover {
@@ -65,20 +42,19 @@
       header {
         padding: 20px 18px 14px;
         border-bottom: 1px solid var(--border);
-        backdrop-filter: blur(10px);
         position: sticky;
         top: 0;
         z-index: 10;
-        background: color-mix(in oklab, var(--bg) 82%, transparent);
+        background: var(--bg);
       }
 
       .wrap {
-        max-width: 1200px;
+        max-width: 1400px;
         margin: 0 auto;
       }
 
       h1 {
-        font-size: 18px;
+        font-size: 20px;
         margin: 0 0 10px 0;
         font-weight: 650;
         letter-spacing: 0.2px;
@@ -86,7 +62,7 @@
 
       .controls {
         display: grid;
-        grid-template-columns: 1.4fr 0.9fr 0.6fr 0.7fr 0.75fr 0.9fr 1.1fr 1fr;
+        grid-template-columns: 1.4fr 0.9fr 0.6fr 0.7fr 1.1fr 0.9fr 1fr;
         gap: 10px;
         align-items: end;
       }
@@ -107,7 +83,7 @@
         padding: 9px 10px;
         border-radius: 10px;
         border: 1px solid var(--border);
-        background: var(--panel);
+        background: #fff;
         color: var(--text);
         outline: none;
       }
@@ -118,19 +94,20 @@
 
       button {
         cursor: pointer;
-        background: linear-gradient(
-          180deg,
-          color-mix(in oklab, var(--brand) 70%, transparent),
-          color-mix(in oklab, var(--brand) 35%, transparent)
-        );
-        border: 1px solid color-mix(in oklab, var(--brand) 45%, var(--border));
+        background: #fff;
+        border: 1px solid var(--border);
         font-weight: 600;
       }
       button:hover {
-        filter: brightness(1.05);
+        border-color: #cbd5e1;
+      }
+      button.primary {
+        background: #4f46e5;
+        border-color: #4f46e5;
+        color: #fff;
       }
       button.secondary {
-        background: var(--panel);
+        background: #fff;
         border: 1px solid var(--border);
         font-weight: 600;
       }
@@ -148,7 +125,7 @@
         padding: 6px 9px;
         border: 1px solid var(--border);
         border-radius: 999px;
-        background: var(--panel);
+        background: var(--card2);
         font-size: 12px;
         color: var(--muted);
       }
@@ -163,170 +140,130 @@
         padding: 16px 18px 40px;
       }
 
-      .app {
-        display: grid;
-        gap: 0;
-        height: clamp(520px, calc(100vh - 240px), 1200px);
-        min-height: 520px;
-      }
-
-      .app.layout-left {
-        grid-template-columns: minmax(220px, var(--list-size, 420px)) 12px 1fr;
-        grid-template-rows: 1fr;
-      }
-
-      .app.layout-top {
-        grid-template-rows: minmax(160px, var(--list-size, 260px)) 12px 1fr;
-        grid-template-columns: 1fr;
-      }
-
-      .splitter {
-        background: color-mix(in oklab, var(--panel-2) 70%, transparent);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        opacity: 0.9;
-        touch-action: none;
-        align-self: stretch;
-        justify-self: stretch;
-      }
-      .app.layout-left .splitter {
-        cursor: col-resize;
-      }
-      .app.layout-top .splitter {
-        cursor: row-resize;
-      }
-
       @media (max-width: 980px) {
         .controls {
           grid-template-columns: 1fr 1fr;
         }
       }
 
-      .panel {
-        border: 1px solid var(--border);
-        background: var(--panel);
-        border-radius: 14px;
-        overflow: hidden;
-        min-height: 0;
+      .list {
         display: flex;
         flex-direction: column;
+        gap: 14px;
       }
 
-      .panel header {
-        position: static;
-        background: transparent;
-        border: none;
-        padding: 12px 14px 10px;
-      }
-      .panel h2 {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 650;
-      }
-
-      .list {
-        max-height: none;
-        flex: 1;
-        overflow: auto;
-        border-top: 1px solid var(--border);
-      }
-
-      .row {
-        padding: 10px 12px;
-        border-top: 1px solid var(--border);
-        cursor: pointer;
-        background: transparent;
-        border-left: 3px solid transparent;
-      }
-      .row:hover {
-        background: var(--panel-2);
-      }
-      .row.active {
-        outline: 2px solid color-mix(in oklab, var(--brand) 55%, transparent);
-        background: color-mix(in oklab, var(--brand) 16%, transparent);
-      }
-
-      .row-title {
-        font-size: 13px;
-        line-height: 1.35;
-        font-weight: 620;
-        margin-bottom: 0;
-        white-space: nowrap;
+      details.paper {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        box-shadow: var(--shadow);
         overflow: hidden;
-        text-overflow: ellipsis;
       }
-      .row-meta {
-        font-size: 12px;
-        color: var(--muted);
+
+      details.paper > summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 14px;
         display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        justify-content: space-between;
+      }
+      details.paper > summary::-webkit-details-marker {
+        display: none;
+      }
+      details.paper[open] > summary {
+        border-bottom: 1px dashed var(--border);
+      }
+
+      .head-left {
+        min-width: 0;
+        flex: 1;
+      }
+      .title {
+        font-size: 16px;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+      .meta {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .badges {
+        display: flex;
+        gap: 6px;
         flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .badge {
+        font-size: 11px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        background: #fff;
+      }
+      .badge.ok {
+        border-color: rgba(22, 163, 74, 0.35);
+        color: #166534;
+        background: rgba(22, 163, 74, 0.08);
+      }
+      .badge.warn {
+        border-color: rgba(245, 158, 11, 0.45);
+        color: #92400e;
+        background: rgba(245, 158, 11, 0.1);
+      }
+      .badge.err {
+        border-color: rgba(239, 68, 68, 0.45);
+        color: #991b1b;
+        background: rgba(239, 68, 68, 0.08);
+      }
+
+      .paper-body {
+        padding: 12px 14px 14px;
+        display: flex;
+        flex-direction: column;
         gap: 10px;
       }
 
-      .badge {
+      .section {
+        background: var(--card2);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px 12px;
+      }
+      .section h3 {
+        margin: 0 0 6px 0;
+        font-size: 12px;
+        color: #334155;
+      }
+      .response {
+        white-space: pre-wrap;
+        line-height: 1.6;
+        font-size: 12.5px;
+        overflow-wrap: anywhere;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .actions button {
+        font-size: 12px;
+        padding: 6px 10px;
+      }
+
+      details.question > summary {
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--muted);
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        padding: 2px 8px;
-        border-radius: 999px;
-        border: 1px solid var(--border);
-        background: color-mix(in oklab, var(--panel) 75%, transparent);
-        font-size: 12px;
-      }
-      .badge .dot {
-        width: 7px;
-        height: 7px;
-      }
-
-      .detail {
-        border-top: 1px solid var(--border);
-        padding: 12px 14px 14px;
-        flex: 1;
-        overflow: auto;
-      }
-      .detail h3 {
-        margin: 0 0 8px;
-        font-size: 15px;
-        line-height: 1.35;
-      }
-      .detail .meta {
-        margin-bottom: 10px;
-        color: var(--muted);
-        font-size: 12px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-      }
-      .detail pre {
-        margin: 0;
-        padding: 12px 12px;
-        border-radius: 12px;
-        border: 1px solid var(--border);
-        background: color-mix(in oklab, var(--panel-2) 70%, transparent);
-        white-space: pre-wrap;
-        word-break: break-word;
-        font-size: 12.5px;
-        line-height: 1.5;
-      }
-      .detail .actions {
-        margin-top: 10px;
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
-
-      details.question {
-        margin: 10px 0 12px;
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        background: color-mix(in oklab, var(--panel-2) 70%, transparent);
-        padding: 10px 10px;
-      }
-      details.question > summary {
-        cursor: pointer;
-        color: var(--muted);
-        font-size: 12px;
-        list-style: none;
         user-select: none;
       }
       details.question > summary::-webkit-details-marker {
@@ -340,12 +277,13 @@
         padding: 10px 10px;
         border-radius: 10px;
         border: 1px solid var(--border);
-        background: color-mix(in oklab, var(--panel) 75%, transparent);
+        background: #fff;
         white-space: pre-wrap;
         word-break: break-word;
         font-size: 12px;
         line-height: 1.45;
       }
+
       .hint {
         color: var(--muted);
         font-size: 12px;
@@ -356,7 +294,7 @@
   <body>
     <header>
       <div class="wrap">
-        <h1>PaperView · query.sh 结果可视化（JSONL）</h1>
+        <h1>PaperView · Query 结果可视化（JSONL）</h1>
         <div class="controls">
           <div>
             <label>加载结果文件（推荐：papers.query.jsonl / papers.*.jsonl）</label>
@@ -381,22 +319,18 @@
             </select>
           </div>
           <div>
-            <label>列表位置</label>
-            <select id="layoutMode">
-              <option value="left">左侧（横屏友好）</option>
-              <option value="top">上方（竖屏友好）</option>
-            </select>
-          </div>
-          <div>
-            <label id="listSizeLabel">列表大小</label>
-            <input id="listSize" type="range" min="220" max="720" value="420" />
-          </div>
-          <div>
             <label>历史查询</label>
             <select id="history"></select>
             <button id="refreshHistory" type="button" class="secondary" style="margin-top: 8px">
               刷新历史
             </button>
+          </div>
+          <div>
+            <label>展开/折叠</label>
+            <div style="display: flex; gap: 10px">
+              <button id="expandAll" type="button" class="secondary">全部展开</button>
+              <button id="collapseAll" type="button" class="secondary">全部折叠</button>
+            </div>
           </div>
           <div>
             <label>快速加载</label>
@@ -414,26 +348,13 @@
     </header>
 
     <main class="wrap">
-      <div id="app" class="app layout-left">
-        <section class="panel" id="listPanel">
-          <header><h2>论文列表</h2></header>
-          <div class="list" id="list"></div>
-        </section>
-        <div id="splitter" class="splitter" role="separator" aria-label="Resize list"></div>
-        <section class="panel" id="detailPanel">
-          <header><h2>详情</h2></header>
-          <div class="detail" id="detail">
-            <div class="hint">选择任意论文查看 query_response / 错误信息。</div>
-          </div>
-        </section>
-      </div>
+      <div id="list" class="list"></div>
     </main>
 
     <script>
       const state = {
         all: [],
         filtered: [],
-        activePaperId: null,
         parseErrors: 0,
         activeJobId: null,
       };
@@ -442,63 +363,15 @@
       const elQ = document.getElementById("q");
       const elStatus = document.getElementById("status");
       const elSort = document.getElementById("sort");
-      const elLayoutMode = document.getElementById("layoutMode");
-      const elListSize = document.getElementById("listSize");
-      const elListSizeLabel = document.getElementById("listSizeLabel");
-      const elApp = document.getElementById("app");
-      const elSplitter = document.getElementById("splitter");
       const elList = document.getElementById("list");
-      const elDetail = document.getElementById("detail");
       const elStats = document.getElementById("stats");
       const elLoadDefault = document.getElementById("loadDefault");
       const elClear = document.getElementById("clear");
       const elHistory = document.getElementById("history");
       const elRefreshHistory = document.getElementById("refreshHistory");
       const elLoadHint = document.getElementById("loadHint");
-
-      function clamp(n, min, max) {
-        return Math.max(min, Math.min(max, n));
-      }
-
-      function getDefaultLayoutMode() {
-        const saved = localStorage.getItem("pv_layout_mode");
-        if (saved === "left" || saved === "top") return saved;
-        return window.innerWidth < 980 ? "top" : "left";
-      }
-
-      function getSavedListSize(mode) {
-        const key = mode === "top" ? "pv_list_height" : "pv_list_width";
-        const v = Number(localStorage.getItem(key) || 0);
-        return Number.isFinite(v) && v > 0 ? v : mode === "top" ? 260 : 420;
-      }
-
-      function getListSizeLimits(mode) {
-        if (mode === "top") {
-          const min = 160;
-          const max = clamp(window.innerHeight - 340, 220, 620);
-          return { min, max };
-        }
-        const min = 220;
-        const max = clamp(window.innerWidth - 420, 320, 980);
-        return { min, max };
-      }
-
-      function applyLayout(mode, sizePx) {
-        elApp.classList.toggle("layout-left", mode === "left");
-        elApp.classList.toggle("layout-top", mode === "top");
-        elLayoutMode.value = mode;
-
-        const { min, max } = getListSizeLimits(mode);
-        elListSize.min = String(min);
-        elListSize.max = String(max);
-        const size = clamp(sizePx, min, max);
-        elListSize.value = String(size);
-        elApp.style.setProperty("--list-size", `${size}px`);
-        elListSizeLabel.textContent = mode === "top" ? `列表高度：${size}px` : `列表宽度：${size}px`;
-
-        localStorage.setItem("pv_layout_mode", mode);
-        localStorage.setItem(mode === "top" ? "pv_list_height" : "pv_list_width", String(size));
-      }
+      const elExpandAll = document.getElementById("expandAll");
+      const elCollapseAll = document.getElementById("collapseAll");
 
       function safeText(v) {
         return (v ?? "").toString();
@@ -549,6 +422,13 @@
         return "var(--muted)";
       }
 
+      function statusBadgeClass(status) {
+        if (status === "ok") return "ok";
+        if (status === "no_sections") return "warn";
+        if (status === "error") return "err";
+        return "";
+      }
+
       function parseJSONL(text) {
         state.parseErrors = 0;
         const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
@@ -578,7 +458,7 @@
         });
         chips.push({
           label: `总 tokens ${totalTokens.toLocaleString()}`,
-          color: "var(--brand)",
+          color: "var(--info)",
         });
         if (state.parseErrors) {
           chips.push({
@@ -626,6 +506,175 @@
         }
       }
 
+      function renderList() {
+        elList.innerHTML = "";
+        if (!state.filtered.length) {
+          elList.innerHTML = '<div class="hint">没有匹配的结果。</div>';
+          return;
+        }
+        const frag = document.createDocumentFragment();
+
+        const makeBadge = (text, cls) => {
+          const span = document.createElement("span");
+          span.className = `badge ${cls || ""}`.trim();
+          span.textContent = text;
+          return span;
+        };
+
+        for (const r of state.filtered) {
+          const card = document.createElement("details");
+          card.className = "paper";
+
+          const summary = document.createElement("summary");
+
+          const left = document.createElement("div");
+          left.className = "head-left";
+
+          const title = document.createElement("div");
+          title.className = "title";
+          title.textContent = r.title || "(Untitled)";
+
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          const metaParts = [];
+          if (r.year) metaParts.push(r.year);
+          if (r.venue) metaParts.push(r.venue);
+          if (r.arxiv_id) metaParts.push(r.arxiv_id);
+          meta.textContent = metaParts.join(" · ");
+
+          left.appendChild(title);
+          if (meta.textContent) left.appendChild(meta);
+
+          const right = document.createElement("div");
+          right.className = "badges";
+          right.appendChild(makeBadge(r.query_status || "unknown", statusBadgeClass(r.query_status)));
+          if (r.total_tokens) {
+            right.appendChild(makeBadge(`tokens ${r.total_tokens.toLocaleString()}`));
+          }
+          if (r.query_elapsed_ms) {
+            right.appendChild(makeBadge(`耗时 ${r.query_elapsed_ms.toLocaleString()}ms`));
+          }
+          if (r.query_model) {
+            right.appendChild(makeBadge(r.query_model));
+          }
+
+          summary.appendChild(left);
+          summary.appendChild(right);
+          card.appendChild(summary);
+
+          const body = document.createElement("div");
+          body.className = "paper-body";
+
+          const links = document.createElement("div");
+          links.className = "meta";
+          const arxivUrl = getArxivUrl(r.arxiv_id);
+          if (arxivUrl) {
+            const a = document.createElement("a");
+            a.href = arxivUrl;
+            a.target = "_blank";
+            a.rel = "noreferrer";
+            a.textContent = `打开 ${r.arxiv_id}`;
+            links.appendChild(a);
+          }
+          if (r.pdf_url) {
+            const a = document.createElement("a");
+            a.href = r.pdf_url;
+            a.target = "_blank";
+            a.rel = "noreferrer";
+            a.textContent = "PDF";
+            links.appendChild(a);
+          }
+          if (links.childNodes.length) body.appendChild(links);
+
+          const sectionInfo = document.createElement("div");
+          sectionInfo.className = "meta";
+          const found = Array.isArray(r.query_sections_found)
+            ? r.query_sections_found.join(", ")
+            : safeText(r.query_sections_found);
+          const secParts = [];
+          if (r.query_sections) secParts.push(`请求章节: ${r.query_sections}`);
+          if (found) secParts.push(`找到章节: ${found}`);
+          if (secParts.length) {
+            sectionInfo.textContent = secParts.join(" · ");
+            body.appendChild(sectionInfo);
+          }
+
+          const qDetails = document.createElement("details");
+          qDetails.className = "question";
+          const qSummary = document.createElement("summary");
+          qSummary.textContent = "问题（点击展开）";
+          qDetails.appendChild(qSummary);
+          const qPre = document.createElement("pre");
+          qPre.textContent = r.query_question || "(无 query_question)";
+          qDetails.appendChild(qPre);
+          body.appendChild(qDetails);
+
+          const responseText =
+            r.query_status === "ok"
+              ? r.query_response
+              : r.query_error || "(无错误信息)";
+
+          const response = document.createElement("div");
+          response.className = "section";
+          const respTitle = document.createElement("h3");
+          respTitle.textContent = "回答";
+          const respBody = document.createElement("div");
+          respBody.className = "response";
+          respBody.textContent = responseText || "";
+          response.appendChild(respTitle);
+          response.appendChild(respBody);
+          body.appendChild(response);
+
+          const actions = document.createElement("div");
+          actions.className = "actions";
+
+          const btnCopy = document.createElement("button");
+          btnCopy.type = "button";
+          btnCopy.className = "secondary";
+          btnCopy.textContent = "复制内容";
+          btnCopy.addEventListener("click", async () => {
+            try {
+              await navigator.clipboard.writeText(respBody.textContent || "");
+              btnCopy.textContent = "已复制";
+              setTimeout(() => (btnCopy.textContent = "复制内容"), 900);
+            } catch {
+              btnCopy.textContent = "复制失败";
+              setTimeout(() => (btnCopy.textContent = "复制内容"), 900);
+            }
+          });
+          actions.appendChild(btnCopy);
+
+          const btnCopyPrompt = document.createElement("button");
+          btnCopyPrompt.type = "button";
+          btnCopyPrompt.className = "secondary";
+          btnCopyPrompt.textContent = "复制问题";
+          btnCopyPrompt.addEventListener("click", async () => {
+            try {
+              await navigator.clipboard.writeText(r.query_question || "");
+              btnCopyPrompt.textContent = "已复制";
+              setTimeout(() => (btnCopyPrompt.textContent = "复制问题"), 900);
+            } catch {
+              btnCopyPrompt.textContent = "复制失败";
+              setTimeout(() => (btnCopyPrompt.textContent = "复制问题"), 900);
+            }
+          });
+          actions.appendChild(btnCopyPrompt);
+
+          body.appendChild(actions);
+          card.appendChild(body);
+          frag.appendChild(card);
+        }
+
+        elList.appendChild(frag);
+      }
+
+      function setAllDetails(openState) {
+        const cards = elList.querySelectorAll("details.paper");
+        cards.forEach((card) => {
+          card.open = openState;
+        });
+      }
+
       function applyFilters() {
         const q = elQ.value.trim().toLowerCase();
         const st = elStatus.value;
@@ -651,160 +700,15 @@
 
         state.filtered = out;
         renderStats();
-
-        if (!state.filtered.length) {
-          state.activePaperId = null;
-          elDetail.innerHTML = '<div class="hint">没有匹配的结果。</div>';
-          return;
-        }
-
-        const active = state.filtered.find((r) => r.paper_id === state.activePaperId);
-        const pick = active || state.filtered[0];
-        state.activePaperId = pick.paper_id;
         renderList();
-        renderDetail(pick);
-      }
-
-      function renderList() {
-        elList.innerHTML = "";
-        const items = state.filtered;
-        const frag = document.createDocumentFragment();
-
-        for (const r of items) {
-          const row = document.createElement("div");
-          row.className = "row";
-          row.style.borderLeftColor = statusColor(r.query_status);
-          row.title = `${r.query_status || "unknown"} · tokens ${Number(r.total_tokens || 0).toLocaleString()} · ${r.arxiv_id || ""}`.trim();
-          if (r.paper_id && r.paper_id === state.activePaperId) row.classList.add("active");
-          row.addEventListener("click", () => {
-            state.activePaperId = r.paper_id;
-            renderList();
-            renderDetail(r);
-          });
-
-          const title = document.createElement("div");
-          title.className = "row-title";
-          title.textContent = r.title || "(Untitled)";
-          row.appendChild(title);
-          frag.appendChild(row);
-        }
-
-        elList.appendChild(frag);
-      }
-
-      function renderDetail(r) {
-        const arxivUrl = getArxivUrl(r.arxiv_id);
-        const sectionsFound = Array.isArray(r.query_sections_found)
-          ? r.query_sections_found.join(", ")
-          : safeText(r.query_sections_found);
-
-        const response =
-          r.query_status === "ok"
-            ? r.query_response
-            : r.query_error || "(无错误信息)";
-
-        elDetail.innerHTML = "";
-
-        const h3 = document.createElement("h3");
-        h3.textContent = r.title || "(Untitled)";
-        elDetail.appendChild(h3);
-
-        const meta = document.createElement("div");
-        meta.className = "meta";
-        meta.innerHTML = "";
-
-        const mk = (text) => {
-          const span = document.createElement("span");
-          span.textContent = text;
-          return span;
-        };
-
-        meta.appendChild(mk(`状态 ${r.query_status || "unknown"}`));
-        if (r.query_model) meta.appendChild(mk(`模型 ${r.query_model}`));
-        if (r.total_tokens) meta.appendChild(mk(`tokens ${r.total_tokens.toLocaleString()}`));
-        if (r.query_elapsed_ms) meta.appendChild(mk(`耗时 ${r.query_elapsed_ms.toLocaleString()}ms`));
-        if (sectionsFound) meta.appendChild(mk(`找到章节 ${sectionsFound}`));
-        if (r.query_sections) meta.appendChild(mk(`请求章节 ${r.query_sections}`));
-
-        if (arxivUrl) {
-          const a = document.createElement("a");
-          a.href = arxivUrl;
-          a.target = "_blank";
-          a.rel = "noreferrer";
-          a.textContent = `打开 ${r.arxiv_id}`;
-          meta.appendChild(a);
-        }
-        if (r.pdf_url) {
-          const a = document.createElement("a");
-          a.href = r.pdf_url;
-          a.target = "_blank";
-          a.rel = "noreferrer";
-          a.textContent = "PDF";
-          meta.appendChild(a);
-        }
-
-        elDetail.appendChild(meta);
-
-        const qDetails = document.createElement("details");
-        qDetails.className = "question";
-        const qSummary = document.createElement("summary");
-        qSummary.textContent = "问题（点击展开）";
-        qDetails.appendChild(qSummary);
-        const qPre = document.createElement("pre");
-        qPre.textContent = r.query_question || "(无 query_question)";
-        qDetails.appendChild(qPre);
-        elDetail.appendChild(qDetails);
-
-        const pre = document.createElement("pre");
-        pre.textContent = response || "";
-        elDetail.appendChild(pre);
-
-        const actions = document.createElement("div");
-        actions.className = "actions";
-        const btnCopy = document.createElement("button");
-        btnCopy.type = "button";
-        btnCopy.className = "secondary";
-        btnCopy.textContent = "复制内容";
-        btnCopy.addEventListener("click", async () => {
-          try {
-            await navigator.clipboard.writeText(pre.textContent || "");
-            btnCopy.textContent = "已复制";
-            setTimeout(() => (btnCopy.textContent = "复制内容"), 900);
-          } catch {
-            btnCopy.textContent = "复制失败";
-            setTimeout(() => (btnCopy.textContent = "复制内容"), 900);
-          }
-        });
-        actions.appendChild(btnCopy);
-
-        const btnCopyPrompt = document.createElement("button");
-        btnCopyPrompt.type = "button";
-        btnCopyPrompt.className = "secondary";
-        btnCopyPrompt.textContent = "复制问题";
-        btnCopyPrompt.addEventListener("click", async () => {
-          try {
-            await navigator.clipboard.writeText(r.query_question || "");
-            btnCopyPrompt.textContent = "已复制";
-            setTimeout(() => (btnCopyPrompt.textContent = "复制问题"), 900);
-          } catch {
-            btnCopyPrompt.textContent = "复制失败";
-            setTimeout(() => (btnCopyPrompt.textContent = "复制问题"), 900);
-          }
-        });
-        actions.appendChild(btnCopyPrompt);
-
-        elDetail.appendChild(actions);
       }
 
       async function loadFromFile(file) {
         const text = await file.text();
         state.all = parseJSONL(text);
         state.filtered = [];
-        state.activePaperId = null;
-        state.activeJobId = null;
         renderStatusOptions();
         applyFilters();
-        if (state.all.length) renderDetail(state.all[0]);
         setLoadHint("当前加载：本地文件");
       }
 
@@ -816,11 +720,9 @@
           const text = await resp.text();
           state.all = parseJSONL(text);
           state.filtered = [];
-          state.activePaperId = null;
           state.activeJobId = jobId;
           renderStatusOptions();
           applyFilters();
-          if (state.all.length) renderDetail(state.all[0]);
           setLoadHint(`当前加载：${jobId}`);
           return true;
         } catch (e) {
@@ -841,10 +743,8 @@
             const text = await resp.text();
             state.all = parseJSONL(text);
             state.filtered = [];
-            state.activePaperId = null;
             renderStatusOptions();
             applyFilters();
-            if (state.all.length) renderDetail(state.all[0]);
             setLoadHint(`当前加载：${path}`);
             return;
           } catch (e) {
@@ -859,72 +759,15 @@
       function clearAll() {
         state.all = [];
         state.filtered = [];
-        state.activePaperId = null;
         state.parseErrors = 0;
         state.activeJobId = null;
         elQ.value = "";
         elStatus.value = "";
         elList.innerHTML = "";
         elStats.innerHTML = "";
-        elDetail.innerHTML =
-          '<div class="hint">选择左侧任意论文查看 query_response / 错误信息。</div>';
         elStatus.innerHTML = '<option value="">全部</option>';
         setLoadHint("已清空");
       }
-
-      function initLayout() {
-        const mode = getDefaultLayoutMode();
-        const size = getSavedListSize(mode);
-        applyLayout(mode, size);
-      }
-
-      elLayoutMode.addEventListener("change", () => {
-        const mode = elLayoutMode.value === "top" ? "top" : "left";
-        const size = getSavedListSize(mode);
-        applyLayout(mode, size);
-      });
-
-      elListSize.addEventListener("input", () => {
-        const mode = elLayoutMode.value === "top" ? "top" : "left";
-        applyLayout(mode, Number(elListSize.value));
-      });
-
-      window.addEventListener("resize", () => {
-        const mode = elLayoutMode.value === "top" ? "top" : "left";
-        applyLayout(mode, Number(elListSize.value));
-      });
-
-      (function initSplitterDrag() {
-        let dragging = false;
-        let start = 0;
-        let startSize = 0;
-
-        function onMove(e) {
-          if (!dragging) return;
-          const mode = elLayoutMode.value === "top" ? "top" : "left";
-          const { min, max } = getListSizeLimits(mode);
-          const delta = mode === "top" ? e.clientY - start : e.clientX - start;
-          const next = clamp(startSize + delta, min, max);
-          applyLayout(mode, next);
-        }
-
-        function onUp() {
-          if (!dragging) return;
-          dragging = false;
-          window.removeEventListener("pointermove", onMove);
-          window.removeEventListener("pointerup", onUp);
-        }
-
-        elSplitter.addEventListener("pointerdown", (e) => {
-          const mode = elLayoutMode.value === "top" ? "top" : "left";
-          dragging = true;
-          start = mode === "top" ? e.clientY : e.clientX;
-          startSize = Number(elListSize.value);
-          elSplitter.setPointerCapture(e.pointerId);
-          window.addEventListener("pointermove", onMove);
-          window.addEventListener("pointerup", onUp);
-        });
-      })();
 
       elFile.addEventListener("change", async (e) => {
         const file = e.target.files && e.target.files[0];
@@ -936,6 +779,8 @@
       elSort.addEventListener("change", () => applyFilters());
       elLoadDefault.addEventListener("click", () => tryLoadDefault());
       elClear.addEventListener("click", () => clearAll());
+      elExpandAll.addEventListener("click", () => setAllDetails(true));
+      elCollapseAll.addEventListener("click", () => setAllDetails(false));
 
       async function fetchHistory() {
         try {
@@ -1005,7 +850,6 @@
       });
 
       async function initPage() {
-        initLayout();
         const params = new URLSearchParams(window.location.search);
         const jobParam = params.get("job");
         const history = await refreshHistory(jobParam || undefined);
