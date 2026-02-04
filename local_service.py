@@ -71,6 +71,14 @@ class DemoHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
         if self.path == "/query":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                payload = {}
+            query_text = payload.get("query") or ""
+            item_keys = payload.get("item_keys") or []
+            if query_text:
+                print(f"[query] {query_text} | items={len(item_keys)}")
             return self._send_json(200, {"result_url": self._result_url()})
         if self.path == "/ingest":
             try:

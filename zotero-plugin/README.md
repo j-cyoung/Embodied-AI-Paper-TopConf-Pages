@@ -15,8 +15,7 @@
 1. 在仓库根目录执行以下命令生成安装包：
 
 ```bash
-cd zotero-plugin
-zip -r ../paperview-query.xpi .
+./scripts/build_xpi.sh
 ```
 
 2. 在 Zotero 中打开插件管理器，然后把 `paperview-query.xpi` 拖入即可安装。

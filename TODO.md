@@ -1,9 +1,9 @@
 # PaperView Zotero 插件集成 TODO
 
 **已锁定假设（中文备注）**
-- [ ] 使用 Zotero `item key` 作为 `paper_id`
-- [ ] OCR 输出沿用 `papers.pages.jsonl`（必要时可添加 Zotero 相关键值）
-- [ ] 结果以 `http://localhost:<port>/...` 提供
+- [x] 使用 Zotero `item key` 作为 `paper_id`
+- [x] OCR 输出沿用 `papers.pages.jsonl`（必要时可添加 Zotero 相关键值）
+- [x] 结果以 `http://localhost:<port>/...` 提供
 
 **阶段 0 - 范围确认**
 - [x] 确认 Zotero 8 插件技术路线（WebExtension + bootstrap/background）
@@ -20,24 +20,23 @@
 - [x] 插件调用服务并打开返回 URL（验证端到端链路）
 
 **阶段 3 - Zotero 数据接入**
-- [ ] 插件收集元信息 + PDF 路径并发送
-- [ ] 服务端保存入库快照（用于后续 OCR/查询）
+- [x] 插件收集元信息 + PDF 路径并发送
+- [x] 服务端保存入库快照（用于后续 OCR/查询）
 
 **阶段 4 - OCR 接入**
-- [ ] 复用现有 OCR 流程产出 `papers.pages.jsonl`
-- [ ] 根据需要补充 Zotero 相关键值
+- [x] 复用现有 OCR 流程产出 `papers.pages.jsonl`
+- [x] OCR 支持增量更新（resume + source_hash）
 
-**阶段 5 - Resume / 增量机制**
-- [ ] 定义 `paper_id` + `query_id` 的增量规则
-- [ ] 支持历史任务续跑与跳过
-
-**阶段 6 - Query 执行与结果展示**
+**阶段 5 - Query Pipeline**
+- [x] 插件弹出查询输入框并发送 query
+- [x] 后台接收 query 并打印查询内容
 - [ ] 复用 `query_papers.py` 生成查询结果
 - [ ] 生成并服务化结果页面（本地 URL）
 - [ ] 插件打开结果 URL
 
 **阶段 7 - 配置与稳定性**
 - [ ] 插件配置项（并发数、模型、base_url 等）
+- [ ] 插件配置项：服务端口 / service_base_url
 - [ ] 基本错误处理与提示
 
 **阶段 8 - 打包与文档**

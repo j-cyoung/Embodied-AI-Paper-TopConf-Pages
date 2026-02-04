@@ -1,9 +1,15 @@
 /* global Zotero */
 
-var menuRegistrationID = null;
 var pluginID = null;
-var FTL_FILE = "paperview.ftl";
 var SERVICE_BASE_URL = "http://127.0.0.1:20341";
+var cleanupHandlers = [];
+
+function getServiceBaseUrl() {
+  if (SERVICE_BASE_URL && typeof SERVICE_BASE_URL === "string") {
+    return SERVICE_BASE_URL;
+  }
+  return "http://127.0.0.1:20341";
+}
 
 function getStoredPdfAttachment(item) {
   const attachmentIDs = item.getAttachments();
@@ -99,7 +105,19 @@ function buildItemPayload(item) {
   };
 }
 
+function promptQueryText() {
+  try {
+    const win = Zotero.getMainWindow();
+    const text = win.prompt("请输入查询内容：", "");
+    return text && text.trim() ? text.trim() : null;
+  } catch (err) {
+    Zotero.debug(`[PaperView] prompt error: ${err}`);
+    return null;
+  }
+}
+
 async function ingestItems(items) {
+  const baseUrl = getServiceBaseUrl();
   const payload = {
     items: items.map(buildItemPayload),
     client: {
@@ -107,7 +125,7 @@ async function ingestItems(items) {
       zotero_version: Zotero.version
     }
   };
-  const resp = await Zotero.HTTP.request("POST", `${SERVICE_BASE_URL}/ingest`, {
+  const resp = await Zotero.HTTP.request("POST", `${baseUrl}/ingest`, {
     body: JSON.stringify(payload),
     headers: { "Content-Type": "application/json" }
   });
@@ -115,9 +133,10 @@ async function ingestItems(items) {
   return JSON.parse(text);
 }
 
-async function queryService(itemKeys) {
-  const payload = { item_keys: itemKeys };
-  const resp = await Zotero.HTTP.request("POST", `${SERVICE_BASE_URL}/query`, {
+async function queryService(itemKeys, queryText) {
+  const baseUrl = getServiceBaseUrl();
+  const payload = { item_keys: itemKeys, query: queryText };
+  const resp = await Zotero.HTTP.request("POST", `${baseUrl}/query`, {
     body: JSON.stringify(payload),
     headers: { "Content-Type": "application/json" }
   });
@@ -129,73 +148,90 @@ async function queryService(itemKeys) {
   Zotero.launchURL(data.result_url);
 }
 
-function insertFTL(win) {
+function attachMenuToWindow(win) {
   try {
-    if (win && win.MozXULElement) {
-      win.MozXULElement.insertFTLIfNeeded(FTL_FILE);
-    }
+    if (!win || !win.document) return;
+    const doc = win.document;
+    const menu = doc.getElementById("zotero-itemmenu");
+    if (!menu) return;
+    if (doc.getElementById("paperview-query-menuitem")) return;
+
+    const menuitem = doc.createXULElement
+      ? doc.createXULElement("menuitem")
+      : doc.createElement("menuitem");
+    menuitem.setAttribute("id", "paperview-query-menuitem");
+    menuitem.setAttribute("label", "Query");
+
+    const onCommand = async () => {
+      try {
+        const items = Zotero.getActiveZoteroPane().getSelectedItems();
+        const keys = items.map((item) => item.key);
+        Zotero.debug(
+          `[PaperView] Selected ${keys.length} item(s): ${keys.join(", ")}`
+        );
+        const queryText = promptQueryText();
+        if (!queryText) {
+          Zotero.debug("[PaperView] Query cancelled");
+          return;
+        }
+        const ingest = await ingestItems(items);
+        Zotero.debug(`[PaperView] Ingested: ${JSON.stringify(ingest)}`);
+        await queryService(keys, queryText);
+      } catch (err) {
+        Zotero.debug(`[PaperView] onCommand error: ${err}`);
+      }
+    };
+
+    const onPopupShowing = () => {
+      const items = Zotero.getActiveZoteroPane().getSelectedItems();
+      menuitem.hidden = !items || items.length === 0;
+    };
+
+    menuitem.addEventListener("command", onCommand);
+    menu.addEventListener("popupshowing", onPopupShowing);
+    menu.appendChild(menuitem);
+
+    cleanupHandlers.push(() => {
+      menu.removeEventListener("popupshowing", onPopupShowing);
+      menuitem.removeEventListener("command", onCommand);
+      if (menuitem.parentNode) menuitem.parentNode.removeChild(menuitem);
+    });
   } catch (err) {
-    Zotero.debug(`[PaperView] insertFTL error: ${err}`);
+    Zotero.debug(`[PaperView] attachMenuToWindow error: ${err}`);
   }
 }
 
-function registerMenu(pluginID) {
-  if (menuRegistrationID) return;
-  menuRegistrationID = Zotero.MenuManager.registerMenu({
-    menuID: "paperview-query",
-    pluginID,
-    target: "main/library/item",
-    menus: [
-      {
-        menuType: "menuitem",
-        l10nID: "paperview-menu-query",
-        onCommand: async (event, context) => {
-          try {
-            const items =
-              context && context.items && context.items.length
-                ? context.items
-                : Zotero.getActiveZoteroPane().getSelectedItems();
-            const keys = items.map((item) => item.key);
-            Zotero.debug(
-              `[PaperView] Selected ${keys.length} item(s): ${keys.join(", ")}`
-            );
-            const ingest = await ingestItems(items);
-            Zotero.debug(`[PaperView] Ingested: ${JSON.stringify(ingest)}`);
-            await queryService(keys);
-          } catch (err) {
-            Zotero.debug(`[PaperView] onCommand error: ${err}`);
-          }
-        }
-      }
-    ]
-  });
+function initMenus() {
+  try {
+    const windows = Zotero.getMainWindows();
+    for (const win of windows) {
+      attachMenuToWindow(win);
+    }
+  } catch (err) {
+    Zotero.debug(`[PaperView] initMenus error: ${err}`);
+  }
 }
 
 function startup({ id }) {
   pluginID = id;
-  registerMenu(id);
-  try {
-    const windows = Zotero.getMainWindows();
-    for (const win of windows) {
-      if (!win || !win.ZoteroPane) continue;
-      insertFTL(win);
-    }
-  } catch (err) {
-    Zotero.debug(`[PaperView] startup window scan error: ${err}`);
-  }
+  Zotero.debug(`[PaperView] service_base_url=${getServiceBaseUrl()}`);
+  initMenus();
 }
 
 function shutdown() {
-  if (menuRegistrationID) {
-    Zotero.MenuManager.unregisterMenu(menuRegistrationID);
-    menuRegistrationID = null;
+  for (const cleanup of cleanupHandlers) {
+    try {
+      cleanup();
+    } catch (err) {
+      // ignore cleanup errors
+    }
   }
+  cleanupHandlers = [];
 }
 
 function install() {}
 function uninstall() {}
 
 function onMainWindowLoad({ window }) {
-  insertFTL(window);
-  registerMenu(pluginID || "paperview-query@local");
+  attachMenuToWindow(window);
 }

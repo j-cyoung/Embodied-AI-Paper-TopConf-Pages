@@ -9,3 +9,4 @@ store/*
 store
 __pycache__/
 tmp
+paperview-query.xpi
