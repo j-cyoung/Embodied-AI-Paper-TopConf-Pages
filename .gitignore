@@ -3,6 +3,7 @@ pdfs/*
 *.csv
 *.jsonl
 *.pdf
+.DS_Store
 backup/*
 store/*
 store

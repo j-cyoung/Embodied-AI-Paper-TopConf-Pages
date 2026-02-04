@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PaperView · Query 结果可视化</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0b1220;
+        --panel: rgba(255, 255, 255, 0.06);
+        --panel-2: rgba(255, 255, 255, 0.09);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.68);
+        --border: rgba(255, 255, 255, 0.12);
+        --brand: #7c83ff;
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --err: #ef4444;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f6f7fb;
+          --panel: rgba(0, 0, 0, 0.04);
+          --panel-2: rgba(0, 0, 0, 0.06);
+          --text: rgba(0, 0, 0, 0.88);
+          --muted: rgba(0, 0, 0, 0.62);
+          --border: rgba(0, 0, 0, 0.12);
+          --brand: #4f46e5;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji",
+          "Segoe UI Emoji";
+        background: radial-gradient(
+            1200px 600px at 20% -10%,
+            rgba(124, 131, 255, 0.18),
+            transparent 55%
+          ),
+          radial-gradient(
+            900px 500px at 90% 10%,
+            rgba(34, 197, 94, 0.12),
+            transparent 55%
+          ),
+          var(--bg);
+        color: var(--text);
+      }
+
+      a {
+        color: var(--brand);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+
+      header {
+        padding: 20px 18px 14px;
+        border-bottom: 1px solid var(--border);
+        backdrop-filter: blur(10px);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: color-mix(in oklab, var(--bg) 82%, transparent);
+      }
+
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        font-size: 18px;
+        margin: 0 0 10px 0;
+        font-weight: 650;
+        letter-spacing: 0.2px;
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: 1.4fr 0.9fr 0.6fr 0.7fr 0.75fr 0.9fr 1fr;
+        gap: 10px;
+        align-items: end;
+      }
+
+      label {
+        font-size: 12px;
+        color: var(--muted);
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      input[type="text"],
+      select,
+      button,
+      input[type="file"] {
+        width: 100%;
+        font-size: 13px;
+        padding: 9px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        outline: none;
+      }
+
+      input[type="file"] {
+        padding: 7px 10px;
+      }
+
+      button {
+        cursor: pointer;
+        background: linear-gradient(
+          180deg,
+          color-mix(in oklab, var(--brand) 70%, transparent),
+          color-mix(in oklab, var(--brand) 35%, transparent)
+        );
+        border: 1px solid color-mix(in oklab, var(--brand) 45%, var(--border));
+        font-weight: 600;
+      }
+      button:hover {
+        filter: brightness(1.05);
+      }
+      button.secondary {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        font-weight: 600;
+      }
+
+      .stats {
+        margin-top: 10px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .chip {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        padding: 6px 9px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--panel);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--muted);
+      }
+
+      main {
+        padding: 16px 18px 40px;
+      }
+
+      .app {
+        display: grid;
+        gap: 0;
+        height: clamp(520px, calc(100vh - 240px), 1200px);
+        min-height: 520px;
+      }
+
+      .app.layout-left {
+        grid-template-columns: minmax(220px, var(--list-size, 420px)) 12px 1fr;
+        grid-template-rows: 1fr;
+      }
+
+      .app.layout-top {
+        grid-template-rows: minmax(160px, var(--list-size, 260px)) 12px 1fr;
+        grid-template-columns: 1fr;
+      }
+
+      .splitter {
+        background: color-mix(in oklab, var(--panel-2) 70%, transparent);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        opacity: 0.9;
+        touch-action: none;
+        align-self: stretch;
+        justify-self: stretch;
+      }
+      .app.layout-left .splitter {
+        cursor: col-resize;
+      }
+      .app.layout-top .splitter {
+        cursor: row-resize;
+      }
+
+      @media (max-width: 980px) {
+        .controls {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      .panel {
+        border: 1px solid var(--border);
+        background: var(--panel);
+        border-radius: 14px;
+        overflow: hidden;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .panel header {
+        position: static;
+        background: transparent;
+        border: none;
+        padding: 12px 14px 10px;
+      }
+      .panel h2 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 650;
+      }
+
+      .list {
+        max-height: none;
+        flex: 1;
+        overflow: auto;
+        border-top: 1px solid var(--border);
+      }
+
+      .row {
+        padding: 10px 12px;
+        border-top: 1px solid var(--border);
+        cursor: pointer;
+        background: transparent;
+        border-left: 3px solid transparent;
+      }
+      .row:hover {
+        background: var(--panel-2);
+      }
+      .row.active {
+        outline: 2px solid color-mix(in oklab, var(--brand) 55%, transparent);
+        background: color-mix(in oklab, var(--brand) 16%, transparent);
+      }
+
+      .row-title {
+        font-size: 13px;
+        line-height: 1.35;
+        font-weight: 620;
+        margin-bottom: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .row-meta {
+        font-size: 12px;
+        color: var(--muted);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: color-mix(in oklab, var(--panel) 75%, transparent);
+        font-size: 12px;
+      }
+      .badge .dot {
+        width: 7px;
+        height: 7px;
+      }
+
+      .detail {
+        border-top: 1px solid var(--border);
+        padding: 12px 14px 14px;
+        flex: 1;
+        overflow: auto;
+      }
+      .detail h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+        line-height: 1.35;
+      }
+      .detail .meta {
+        margin-bottom: 10px;
+        color: var(--muted);
+        font-size: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .detail pre {
+        margin: 0;
+        padding: 12px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: color-mix(in oklab, var(--panel-2) 70%, transparent);
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 12.5px;
+        line-height: 1.5;
+      }
+      .detail .actions {
+        margin-top: 10px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      details.question {
+        margin: 10px 0 12px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: color-mix(in oklab, var(--panel-2) 70%, transparent);
+        padding: 10px 10px;
+      }
+      details.question > summary {
+        cursor: pointer;
+        color: var(--muted);
+        font-size: 12px;
+        list-style: none;
+        user-select: none;
+      }
+      details.question > summary::-webkit-details-marker {
+        display: none;
+      }
+      details.question[open] > summary {
+        margin-bottom: 8px;
+      }
+      details.question pre {
+        margin: 0;
+        padding: 10px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: color-mix(in oklab, var(--panel) 75%, transparent);
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .hint {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 6px 0 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap">
+        <h1>PaperView · query.sh 结果可视化（JSONL）</h1>
+        <div class="controls">
+          <div>
+            <label>加载结果文件（推荐：papers.query.jsonl / papers.*.jsonl）</label>
+            <input id="file" type="file" accept=".jsonl,application/json,text/plain" />
+          </div>
+          <div>
+            <label>搜索（标题 / arXiv / 回答）</label>
+            <input id="q" type="text" placeholder="例如：data, diffusion, RT-2..." />
+          </div>
+          <div>
+            <label>状态</label>
+            <select id="status">
+              <option value="">全部</option>
+            </select>
+          </div>
+          <div>
+            <label>排序</label>
+            <select id="sort">
+              <option value="tokens_desc">tokens ↓</option>
+              <option value="elapsed_asc">耗时 ↑</option>
+              <option value="title_asc">标题 A→Z</option>
+            </select>
+          </div>
+          <div>
+            <label>列表位置</label>
+            <select id="layoutMode">
+              <option value="left">左侧（横屏友好）</option>
+              <option value="top">上方（竖屏友好）</option>
+            </select>
+          </div>
+          <div>
+            <label id="listSizeLabel">列表大小</label>
+            <input id="listSize" type="range" min="220" max="720" value="420" />
+          </div>
+          <div>
+            <label>快速加载</label>
+            <div style="display: flex; gap: 10px">
+              <button id="loadDefault" type="button">加载默认路径</button>
+              <button id="clear" type="button" class="secondary">清空</button>
+            </div>
+          </div>
+        </div>
+        <div class="stats" id="stats"></div>
+        <div class="hint">
+          默认会尝试加载 <code>./store/query/comparison/papers.query.jsonl</code>；如果你把网页部署到 GitHub Pages，建议手动选择本地文件。
+        </div>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <div id="app" class="app layout-left">
+        <section class="panel" id="listPanel">
+          <header><h2>论文列表</h2></header>
+          <div class="list" id="list"></div>
+        </section>
+        <div id="splitter" class="splitter" role="separator" aria-label="Resize list"></div>
+        <section class="panel" id="detailPanel">
+          <header><h2>详情</h2></header>
+          <div class="detail" id="detail">
+            <div class="hint">选择任意论文查看 query_response / 错误信息。</div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const state = {
+        all: [],
+        filtered: [],
+        activePaperId: null,
+        parseErrors: 0,
+      };
+
+      const elFile = document.getElementById("file");
+      const elQ = document.getElementById("q");
+      const elStatus = document.getElementById("status");
+      const elSort = document.getElementById("sort");
+      const elLayoutMode = document.getElementById("layoutMode");
+      const elListSize = document.getElementById("listSize");
+      const elListSizeLabel = document.getElementById("listSizeLabel");
+      const elApp = document.getElementById("app");
+      const elSplitter = document.getElementById("splitter");
+      const elList = document.getElementById("list");
+      const elDetail = document.getElementById("detail");
+      const elStats = document.getElementById("stats");
+      const elLoadDefault = document.getElementById("loadDefault");
+      const elClear = document.getElementById("clear");
+
+      function clamp(n, min, max) {
+        return Math.max(min, Math.min(max, n));
+      }
+
+      function getDefaultLayoutMode() {
+        const saved = localStorage.getItem("pv_layout_mode");
+        if (saved === "left" || saved === "top") return saved;
+        return window.innerWidth < 980 ? "top" : "left";
+      }
+
+      function getSavedListSize(mode) {
+        const key = mode === "top" ? "pv_list_height" : "pv_list_width";
+        const v = Number(localStorage.getItem(key) || 0);
+        return Number.isFinite(v) && v > 0 ? v : mode === "top" ? 260 : 420;
+      }
+
+      function getListSizeLimits(mode) {
+        if (mode === "top") {
+          const min = 160;
+          const max = clamp(window.innerHeight - 340, 220, 620);
+          return { min, max };
+        }
+        const min = 220;
+        const max = clamp(window.innerWidth - 420, 320, 980);
+        return { min, max };
+      }
+
+      function applyLayout(mode, sizePx) {
+        elApp.classList.toggle("layout-left", mode === "left");
+        elApp.classList.toggle("layout-top", mode === "top");
+        elLayoutMode.value = mode;
+
+        const { min, max } = getListSizeLimits(mode);
+        elListSize.min = String(min);
+        elListSize.max = String(max);
+        const size = clamp(sizePx, min, max);
+        elListSize.value = String(size);
+        elApp.style.setProperty("--list-size", `${size}px`);
+        elListSizeLabel.textContent = mode === "top" ? `列表高度：${size}px` : `列表宽度：${size}px`;
+
+        localStorage.setItem("pv_layout_mode", mode);
+        localStorage.setItem(mode === "top" ? "pv_list_height" : "pv_list_width", String(size));
+      }
+
+      function safeText(v) {
+        return (v ?? "").toString();
+      }
+
+      function getArxivUrl(arxivId) {
+        const id = safeText(arxivId).trim();
+        if (!id) return "";
+        return `https://arxiv.org/abs/${encodeURIComponent(id)}`;
+      }
+
+      function normalizeRecord(rec) {
+        const usage = rec.query_usage || {};
+        const totalTokens =
+          Number(usage.total_tokens ?? rec.total_tokens ?? rec.total_tokens) || 0;
+        const elapsed = Number(rec.query_elapsed_ms ?? rec.query_elapsed_ms) || 0;
+        const status = safeText(rec.query_status || rec.status || "").trim();
+        return {
+          paper_id: safeText(rec.paper_id),
+          title: safeText(rec.title),
+          arxiv_id: safeText(rec.arxiv_id),
+          year: rec.year,
+          venue: safeText(rec.venue),
+          query_status: status,
+          query_model: safeText(rec.query_model),
+          query_sections: safeText(rec.query_sections),
+          query_sections_found: rec.query_sections_found || [],
+          query_question: safeText(rec.query_question),
+          query_response: safeText(rec.query_response),
+          query_error: safeText(rec.query_error),
+          total_tokens: totalTokens,
+          prompt_tokens: Number(usage.prompt_tokens || 0),
+          output_tokens: Number(usage.output_tokens || 0),
+          query_elapsed_ms: elapsed,
+          pdf_url: safeText(rec.pdf_url),
+        };
+      }
+
+      function statusColor(status) {
+        if (status === "ok") return "var(--ok)";
+        if (status === "no_sections") return "var(--warn)";
+        if (status === "error") return "var(--err)";
+        return "var(--muted)";
+      }
+
+      function parseJSONL(text) {
+        state.parseErrors = 0;
+        const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        const out = [];
+        for (let i = 0; i < lines.length; i++) {
+          try {
+            out.push(normalizeRecord(JSON.parse(lines[i])));
+          } catch (e) {
+            state.parseErrors += 1;
+          }
+        }
+        return out;
+      }
+
+      function buildStats(records) {
+        const by = new Map();
+        let totalTokens = 0;
+        for (const r of records) {
+          const k = r.query_status || "unknown";
+          by.set(k, (by.get(k) || 0) + 1);
+          totalTokens += r.total_tokens || 0;
+        }
+        const chips = [];
+        chips.push({
+          label: `显示 ${records.length}/${state.all.length}`,
+          color: "var(--muted)",
+        });
+        chips.push({
+          label: `总 tokens ${totalTokens.toLocaleString()}`,
+          color: "var(--brand)",
+        });
+        if (state.parseErrors) {
+          chips.push({
+            label: `解析失败 ${state.parseErrors}`,
+            color: "var(--err)",
+          });
+        }
+        for (const [k, v] of [...by.entries()].sort((a, b) =>
+          a[0].localeCompare(b[0])
+        )) {
+          chips.push({
+            label: `${k} ${v}`,
+            color: statusColor(k),
+          });
+        }
+        return chips;
+      }
+
+      function renderStats() {
+        elStats.innerHTML = "";
+        const chips = buildStats(state.filtered);
+        for (const c of chips) {
+          const span = document.createElement("span");
+          span.className = "chip";
+          const dot = document.createElement("span");
+          dot.className = "dot";
+          dot.style.background = c.color;
+          span.appendChild(dot);
+          const t = document.createElement("span");
+          t.textContent = c.label;
+          span.appendChild(t);
+          elStats.appendChild(span);
+        }
+      }
+
+      function renderStatusOptions() {
+        const seen = new Set(state.all.map((r) => r.query_status || "unknown"));
+        const options = [...seen].sort((a, b) => a.localeCompare(b));
+        elStatus.innerHTML = '<option value="">全部</option>';
+        for (const s of options) {
+          const opt = document.createElement("option");
+          opt.value = s;
+          opt.textContent = s;
+          elStatus.appendChild(opt);
+        }
+      }
+
+      function applyFilters() {
+        const q = elQ.value.trim().toLowerCase();
+        const st = elStatus.value;
+        const out = [];
+        for (const r of state.all) {
+          if (st && r.query_status !== st) continue;
+          if (q) {
+            const hay =
+              `${r.title}\n${r.arxiv_id}\n${r.query_response}\n${r.query_error}`.toLowerCase();
+            if (!hay.includes(q)) continue;
+          }
+          out.push(r);
+        }
+
+        const sort = elSort.value;
+        if (sort === "tokens_desc") {
+          out.sort((a, b) => (b.total_tokens || 0) - (a.total_tokens || 0));
+        } else if (sort === "elapsed_asc") {
+          out.sort((a, b) => (a.query_elapsed_ms || 0) - (b.query_elapsed_ms || 0));
+        } else if (sort === "title_asc") {
+          out.sort((a, b) => a.title.localeCompare(b.title));
+        }
+
+        state.filtered = out;
+        renderStats();
+
+        if (!state.filtered.length) {
+          state.activePaperId = null;
+          elDetail.innerHTML = '<div class="hint">没有匹配的结果。</div>';
+          return;
+        }
+
+        const active = state.filtered.find((r) => r.paper_id === state.activePaperId);
+        const pick = active || state.filtered[0];
+        state.activePaperId = pick.paper_id;
+        renderList();
+        renderDetail(pick);
+      }
+
+      function renderList() {
+        elList.innerHTML = "";
+        const items = state.filtered;
+        const frag = document.createDocumentFragment();
+
+        for (const r of items) {
+          const row = document.createElement("div");
+          row.className = "row";
+          row.style.borderLeftColor = statusColor(r.query_status);
+          row.title = `${r.query_status || "unknown"} · tokens ${Number(r.total_tokens || 0).toLocaleString()} · ${r.arxiv_id || ""}`.trim();
+          if (r.paper_id && r.paper_id === state.activePaperId) row.classList.add("active");
+          row.addEventListener("click", () => {
+            state.activePaperId = r.paper_id;
+            renderList();
+            renderDetail(r);
+          });
+
+          const title = document.createElement("div");
+          title.className = "row-title";
+          title.textContent = r.title || "(Untitled)";
+          row.appendChild(title);
+          frag.appendChild(row);
+        }
+
+        elList.appendChild(frag);
+      }
+
+      function renderDetail(r) {
+        const arxivUrl = getArxivUrl(r.arxiv_id);
+        const sectionsFound = Array.isArray(r.query_sections_found)
+          ? r.query_sections_found.join(", ")
+          : safeText(r.query_sections_found);
+
+        const response =
+          r.query_status === "ok"
+            ? r.query_response
+            : r.query_error || "(无错误信息)";
+
+        elDetail.innerHTML = "";
+
+        const h3 = document.createElement("h3");
+        h3.textContent = r.title || "(Untitled)";
+        elDetail.appendChild(h3);
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.innerHTML = "";
+
+        const mk = (text) => {
+          const span = document.createElement("span");
+          span.textContent = text;
+          return span;
+        };
+
+        meta.appendChild(mk(`状态 ${r.query_status || "unknown"}`));
+        if (r.query_model) meta.appendChild(mk(`模型 ${r.query_model}`));
+        if (r.total_tokens) meta.appendChild(mk(`tokens ${r.total_tokens.toLocaleString()}`));
+        if (r.query_elapsed_ms) meta.appendChild(mk(`耗时 ${r.query_elapsed_ms.toLocaleString()}ms`));
+        if (sectionsFound) meta.appendChild(mk(`找到章节 ${sectionsFound}`));
+        if (r.query_sections) meta.appendChild(mk(`请求章节 ${r.query_sections}`));
+
+        if (arxivUrl) {
+          const a = document.createElement("a");
+          a.href = arxivUrl;
+          a.target = "_blank";
+          a.rel = "noreferrer";
+          a.textContent = `打开 ${r.arxiv_id}`;
+          meta.appendChild(a);
+        }
+        if (r.pdf_url) {
+          const a = document.createElement("a");
+          a.href = r.pdf_url;
+          a.target = "_blank";
+          a.rel = "noreferrer";
+          a.textContent = "PDF";
+          meta.appendChild(a);
+        }
+
+        elDetail.appendChild(meta);
+
+        const qDetails = document.createElement("details");
+        qDetails.className = "question";
+        const qSummary = document.createElement("summary");
+        qSummary.textContent = "问题（点击展开）";
+        qDetails.appendChild(qSummary);
+        const qPre = document.createElement("pre");
+        qPre.textContent = r.query_question || "(无 query_question)";
+        qDetails.appendChild(qPre);
+        elDetail.appendChild(qDetails);
+
+        const pre = document.createElement("pre");
+        pre.textContent = response || "";
+        elDetail.appendChild(pre);
+
+        const actions = document.createElement("div");
+        actions.className = "actions";
+        const btnCopy = document.createElement("button");
+        btnCopy.type = "button";
+        btnCopy.className = "secondary";
+        btnCopy.textContent = "复制内容";
+        btnCopy.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.textContent || "");
+            btnCopy.textContent = "已复制";
+            setTimeout(() => (btnCopy.textContent = "复制内容"), 900);
+          } catch {
+            btnCopy.textContent = "复制失败";
+            setTimeout(() => (btnCopy.textContent = "复制内容"), 900);
+          }
+        });
+        actions.appendChild(btnCopy);
+
+        const btnCopyPrompt = document.createElement("button");
+        btnCopyPrompt.type = "button";
+        btnCopyPrompt.className = "secondary";
+        btnCopyPrompt.textContent = "复制问题";
+        btnCopyPrompt.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(r.query_question || "");
+            btnCopyPrompt.textContent = "已复制";
+            setTimeout(() => (btnCopyPrompt.textContent = "复制问题"), 900);
+          } catch {
+            btnCopyPrompt.textContent = "复制失败";
+            setTimeout(() => (btnCopyPrompt.textContent = "复制问题"), 900);
+          }
+        });
+        actions.appendChild(btnCopyPrompt);
+
+        elDetail.appendChild(actions);
+      }
+
+      async function loadFromFile(file) {
+        const text = await file.text();
+        state.all = parseJSONL(text);
+        state.filtered = [];
+        state.activePaperId = null;
+        renderStatusOptions();
+        applyFilters();
+        if (state.all.length) renderDetail(state.all[0]);
+      }
+
+      async function tryLoadDefault() {
+        const candidates = [
+          "./store/query/comparison/papers.query.jsonl",
+          "./store/query/papers.query.jsonl",
+        ];
+        for (const path of candidates) {
+          try {
+            const resp = await fetch(path, { cache: "no-store" });
+            if (!resp.ok) continue;
+            const text = await resp.text();
+            state.all = parseJSONL(text);
+            state.filtered = [];
+            state.activePaperId = null;
+            renderStatusOptions();
+            applyFilters();
+            if (state.all.length) renderDetail(state.all[0]);
+            return;
+          } catch (e) {
+            // ignore
+          }
+        }
+        alert(
+          "未能加载默认路径。请用右上角的“选择文件”加载 papers.query.jsonl。\\n\\n提示：如果你直接双击打开 HTML，浏览器可能限制 fetch 访问本地文件；建议运行：python -m http.server"
+        );
+      }
+
+      function clearAll() {
+        state.all = [];
+        state.filtered = [];
+        state.activePaperId = null;
+        state.parseErrors = 0;
+        elQ.value = "";
+        elStatus.value = "";
+        elList.innerHTML = "";
+        elStats.innerHTML = "";
+        elDetail.innerHTML =
+          '<div class="hint">选择左侧任意论文查看 query_response / 错误信息。</div>';
+        elStatus.innerHTML = '<option value="">全部</option>';
+      }
+
+      function initLayout() {
+        const mode = getDefaultLayoutMode();
+        const size = getSavedListSize(mode);
+        applyLayout(mode, size);
+      }
+
+      elLayoutMode.addEventListener("change", () => {
+        const mode = elLayoutMode.value === "top" ? "top" : "left";
+        const size = getSavedListSize(mode);
+        applyLayout(mode, size);
+      });
+
+      elListSize.addEventListener("input", () => {
+        const mode = elLayoutMode.value === "top" ? "top" : "left";
+        applyLayout(mode, Number(elListSize.value));
+      });
+
+      window.addEventListener("resize", () => {
+        const mode = elLayoutMode.value === "top" ? "top" : "left";
+        applyLayout(mode, Number(elListSize.value));
+      });
+
+      (function initSplitterDrag() {
+        let dragging = false;
+        let start = 0;
+        let startSize = 0;
+
+        function onMove(e) {
+          if (!dragging) return;
+          const mode = elLayoutMode.value === "top" ? "top" : "left";
+          const { min, max } = getListSizeLimits(mode);
+          const delta = mode === "top" ? e.clientY - start : e.clientX - start;
+          const next = clamp(startSize + delta, min, max);
+          applyLayout(mode, next);
+        }
+
+        function onUp() {
+          if (!dragging) return;
+          dragging = false;
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+        }
+
+        elSplitter.addEventListener("pointerdown", (e) => {
+          const mode = elLayoutMode.value === "top" ? "top" : "left";
+          dragging = true;
+          start = mode === "top" ? e.clientY : e.clientX;
+          startSize = Number(elListSize.value);
+          elSplitter.setPointerCapture(e.pointerId);
+          window.addEventListener("pointermove", onMove);
+          window.addEventListener("pointerup", onUp);
+        });
+      })();
+
+      elFile.addEventListener("change", async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        await loadFromFile(file);
+      });
+      elQ.addEventListener("input", () => applyFilters());
+      elStatus.addEventListener("change", () => applyFilters());
+      elSort.addEventListener("change", () => applyFilters());
+      elLoadDefault.addEventListener("click", () => tryLoadDefault());
+      elClear.addEventListener("click", () => clearAll());
+
+      initLayout();
+    </script>
+  </body>
+</html>

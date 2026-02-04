@@ -64,6 +64,28 @@ python query_papers.py \
 ./scripts/query.sh
 ```
 
+### 翻译摘要与引言（Shell 脚本）
+
+脚本：`./scripts/query_abs_intro_trans.sh`
+
+- 默认输出到：`./store/query/translation/abs_intro/`
+- 常用覆盖参数（环境变量）：`FILTER_TITLE`、`TOP_K`、`MODEL_NAME`、`CONCURRENCY`、`MAX_OUTPUT_TOKENS`
+
+示例：
+```bash
+FILTER_TITLE=data TOP_K=5 ./scripts/query_abs_intro_trans.sh
+```
+
+### query 结果可视化（本地网页）
+
+打开 `query_view.html`，加载 `papers.query.jsonl`（或任意 `papers.*.jsonl`）。
+
+如果希望网页自动读取默认路径（如 `./store/query/comparison/papers.query.jsonl`），建议在仓库根目录启动静态服务：
+```bash
+python -m http.server 8000
+```
+然后访问：`http://localhost:8000/query_view.html`
+
 #### 支持的章节名称
 - `abstract` / `摘要`
 - `introduction` / `引言`
@@ -84,4 +106,3 @@ python query_papers.py \
 - 建议先用 `--top_k` 参数测试少量论文，确认效果后再批量查询
 - 使用 `--resume` 可以从中断处继续，避免重复查询已处理的论文
 - 使用 `--filter_title` 可以按标题关键字筛选论文，减少不必要的 API 调用
-

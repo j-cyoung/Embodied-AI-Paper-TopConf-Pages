@@ -27,48 +27,121 @@ from paper_utils import (
 # 章节名称映射表（支持模糊匹配）
 SECTION_PATTERNS = {
     "abstract": [
-        r"^#*\s*abstract\s*$",
-        r"^#*\s*摘要\s*$",
+        r"^abstract\s*$",
+        r"^摘要\s*$",
     ],
     "introduction": [
-        r"^#*\s*1\s*\.?\s*introduction\s*$",
-        r"^#*\s*introduction\s*$",
-        r"^#*\s*引言\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*introduction\s*$",
+        r"^introduction\s*$",
+        r"^引言\s*$",
     ],
     "related_work": [
-        r"^#*\s*2\s*\.?\s*related\s+work\s*$",
-        r"^#*\s*related\s+work\s*$",
-        r"^#*\s*related\s+works?\s*$",
-        r"^#*\s*preliminary\s*$",
-        r"^#*\s*preliminaries\s*$",
-        r"^#*\s*background\s*$",
-        r"^#*\s*相关工作\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*related\s+works?\s*$",
+        r"^related\s+works?\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*preliminaries\s*$",
+        r"^preliminaries\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*preliminary\s*$",
+        r"^preliminary\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*background\s*$",
+        r"^background\s*$",
+        r"^相关工作\s*$",
     ],
     "methods": [
-        r"^#*\s*3\s*\.?\s*method\s*$",
-        r"^#*\s*method\s*$",
-        r"^#*\s*methods\s*$",
-        r"^#*\s*methodology\s*$",
-        r"^#*\s*approach\s*$",
-        r"^#*\s*methodology\s*$",
-        r"^#*\s*方法\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*methods?\s*$",
+        r"^methods?\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*methodology\s*$",
+        r"^methodology\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*approach\s*$",
+        r"^approach\s*$",
+        r"^方法\s*$",
     ],
     "experiments": [
-        r"^#*\s*4\s*\.?\s*experiment\s*$",
-        r"^#*\s*experiment\s*$",
-        r"^#*\s*experiments\s*$",
-        r"^#*\s*evaluation\s*$",
-        r"^#*\s*results\s*$",
-        r"^#*\s*实验\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*experiments?\s*$",
+        r"^experiments?\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*evaluation\s*$",
+        r"^evaluation\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*results\s*$",
+        r"^results\s*$",
+        r"^实验\s*$",
     ],
     "conclusion": [
-        r"^#*\s*5\s*\.?\s*conclusion\s*$",
-        r"^#*\s*conclusion\s*$",
-        r"^#*\s*conclusions\s*$",
-        r"^#*\s*discussion\s*$",
-        r"^#*\s*总结\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*conclusions?\s*$",
+        r"^conclusions?\s*$",
+        r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*discussion\s*$",
+        r"^discussion\s*$",
+        r"^总结\s*$",
     ],
 }
+
+
+def _normalize_heading_candidate(line: str) -> str:
+    """
+    将疑似标题行做轻量规范化，增强对 OCR/Markdown 噪声的鲁棒性。
+    例：
+      "**1. Introduction**" -> "1. Introduction"
+      "**1** **Introduction**" -> "1 Introduction"
+      "I. INTRODUCTION" -> "I. INTRODUCTION"
+      "# 2 Related Work" -> "2 Related Work"
+    """
+    s = (line or "").strip()
+    if not s:
+        return ""
+
+    # 常见前缀噪声：引用、列表、标题符号
+    s = re.sub(r"^[>\-\+\u2022\s]+", "", s)
+    s = s.lstrip("#").strip()
+
+    # 去掉常见 Markdown 强调/代码样式符号（仅用于标题匹配）
+    s = s.replace("*", "").replace("_", "").replace("`", "")
+    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"[:：]\s*$", "", s).strip()
+    return s
+
+
+def _roman_to_int(roman: str) -> Optional[int]:
+    roman = (roman or "").strip().lower()
+    if not roman or not re.fullmatch(r"[ivxlcdm]+", roman):
+        return None
+    values = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+    total = 0
+    prev = 0
+    for ch in reversed(roman):
+        v = values[ch]
+        if v < prev:
+            total -= v
+        else:
+            total += v
+            prev = v
+    return total or None
+
+
+def _is_probably_heading_line(raw_line: str, norm_line: str) -> bool:
+    s = (raw_line or "").strip()
+    if not s:
+        return False
+    if not norm_line:
+        return False
+
+    # 避免把正文长句当标题
+    if len(norm_line) > 140:
+        return False
+
+    if s.startswith("#"):
+        return True
+    if (s.startswith("**") and s.endswith("**")) or (s.startswith("__") and s.endswith("__")):
+        return True
+    if norm_line.isupper() and len(norm_line) > 3:
+        return True
+    if re.match(r"^(?:\d+|[ivxlcdm]+)\s*[\.\)\-–—:]?\s*[A-Za-z]", norm_line, re.IGNORECASE):
+        return True
+    return False
+
+
+def _matches_any_pattern(norm_line: str, pattern_strs: List[str]) -> bool:
+    for p in pattern_strs:
+        if re.match(p, norm_line, re.IGNORECASE):
+            return True
+    return False
 
 
 @dataclass
@@ -234,52 +307,56 @@ def find_section_in_text(text: str, section_name: str) -> Optional[Tuple[int, in
     
     if not patterns:
         # 如果没有预定义模式，尝试直接搜索
-        pattern_str = rf"^#+\s*{re.escape(section_name)}\s*$"
-        patterns = [pattern_str]
+        patterns = [rf"^{re.escape(section_name)}\s*$"]
     
     lines = text.split("\n")
+    norm_lines = [_normalize_heading_candidate(l) for l in lines]
     section_start = None
     section_end = None
     
     # 查找章节开始位置
-    for i, line in enumerate(lines):
-        line_stripped = line.strip()
-        # 跳过空行
-        if not line_stripped:
+    for i, norm in enumerate(norm_lines):
+        if not norm:
             continue
-        # 检查是否是标题行（以#开头或全大写或特定格式）
-        for pattern_str in patterns:
-            pattern = re.compile(pattern_str, re.IGNORECASE)
-            if pattern.match(line_stripped):
-                section_start = i + 1  # 下一行开始
-                break
-        if section_start is not None:
+        if _matches_any_pattern(norm, patterns):
+            section_start = i + 1  # 下一行开始
             break
     
     if section_start is None:
         return None
     
-    # 查找章节结束位置（下一个同级或更高级标题）
+    # 查找章节结束位置（下一章节标题）
+    # 1) 优先：匹配到任何其他已知章节标题
+    # 2) 兜底（针对 introduction）：遇到主编号 > 1 的标题（如 "2. ..." 或 "II. ..."）即截断
     for i in range(section_start, len(lines)):
-        line_stripped = lines[i].strip()
-        # 跳过空行
-        if not line_stripped:
+        norm = norm_lines[i]
+        if not norm:
             continue
-        # 检查是否是新的章节标题（以#开头或全大写）
-        if line_stripped.startswith("#") or (line_stripped.isupper() and len(line_stripped) > 3):
-            # 检查是否是另一个章节
-            for other_section, other_patterns in SECTION_PATTERNS.items():
-                if other_section == section_name:
-                    continue
-                for pattern_str in other_patterns:
-                    pattern = re.compile(pattern_str, re.IGNORECASE)
-                    if pattern.match(line_stripped):
-                        section_end = i
-                        return (section_start, section_end)
-            # 如果匹配到任何数字开头的标题（如 "2. Related Work"），也认为是新章节
-            if re.match(r"^#*\s*\d+\s*\.?\s*[A-Z]", line_stripped, re.IGNORECASE):
+        if not _is_probably_heading_line(lines[i], norm):
+            continue
+
+        for other_section, other_patterns in SECTION_PATTERNS.items():
+            if other_section == section_name:
+                continue
+            if _matches_any_pattern(norm, other_patterns):
                 section_end = i
                 return (section_start, section_end)
+
+        if section_name == "introduction":
+            m_num = re.match(r"^(?P<n>\d+)(?:\.\d+)*\s*[\.\)\-–—:]?\s+\S", norm)
+            if m_num:
+                try:
+                    if int(m_num.group("n")) > 1:
+                        section_end = i
+                        return (section_start, section_end)
+                except ValueError:
+                    pass
+            m_rom = re.match(r"^(?P<r>[ivxlcdm]+)\s*[\.\)\-–—:]?\s+\S", norm, re.IGNORECASE)
+            if m_rom:
+                v = _roman_to_int(m_rom.group("r"))
+                if v is not None and v > 1:
+                    section_end = i
+                    return (section_start, section_end)
     
     # 如果没有找到下一个章节，返回到文本末尾
     section_end = len(lines)
@@ -338,6 +415,11 @@ def build_prompt(
         parts.append(f"摘要:\n{paper_abstract}\n")
     
     if sections:
+        # 避免摘要重复：abstract 既可能来自 paper_abstract，也可能在 sections 中出现
+        if paper_abstract and "abstract" in sections:
+            sections = dict(sections)
+            sections.pop("abstract", None)
+
         parts.append("论文相关章节内容:\n")
         for section_name, section_text in sections.items():
             # 限制每个章节的长度
