@@ -30,9 +30,13 @@
 **阶段 5 - Query Pipeline**
 - [x] 插件弹出查询输入框并发送 query
 - [x] 后台接收 query 并打印查询内容
-- [ ] 复用 `query_papers.py` 生成查询结果
-- [ ] 生成并服务化结果页面（本地 URL）
-- [ ] 插件打开结果 URL
+- [x] 为每次查询创建 job 文件夹（`store/zotero/query/<job_id>`），写入查询与条目快照
+- [x] OCR 结果只缓存到 `store/zotero/ocr`，查询时复用并增量补齐
+- [x] 复用 `query_papers.py` 生成查询结果并写入 job 文件夹
+- [x] 结果页面通过本地服务展示（`/result/<job_id>`）
+- [x] 结果页使用 `query_view.html` 完整 UI（默认当前查询）
+- [x] 历史查询列表 + 切换（`/history` + 前端下拉）
+- [ ] 端到端验证：Zotero 右键 → 查询 → 生成结果页
 
 **阶段 7 - 配置与稳定性**
 - [ ] 插件配置项（并发数、模型、base_url 等）

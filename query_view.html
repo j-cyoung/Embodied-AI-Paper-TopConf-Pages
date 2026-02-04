@@ -86,7 +86,7 @@
 
       .controls {
         display: grid;
-        grid-template-columns: 1.4fr 0.9fr 0.6fr 0.7fr 0.75fr 0.9fr 1fr;
+        grid-template-columns: 1.4fr 0.9fr 0.6fr 0.7fr 0.75fr 0.9fr 1.1fr 1fr;
         gap: 10px;
         align-items: end;
       }
@@ -392,6 +392,13 @@
             <input id="listSize" type="range" min="220" max="720" value="420" />
           </div>
           <div>
+            <label>历史查询</label>
+            <select id="history"></select>
+            <button id="refreshHistory" type="button" class="secondary" style="margin-top: 8px">
+              刷新历史
+            </button>
+          </div>
+          <div>
             <label>快速加载</label>
             <div style="display: flex; gap: 10px">
               <button id="loadDefault" type="button">加载默认路径</button>
@@ -400,8 +407,8 @@
           </div>
         </div>
         <div class="stats" id="stats"></div>
-        <div class="hint">
-          默认会尝试加载 <code>./store/query/comparison/papers.query.jsonl</code>；如果你把网页部署到 GitHub Pages，建议手动选择本地文件。
+        <div class="hint" id="loadHint">
+          优先加载当前查询（URL 参数 <code>?job=</code>），也可在「历史查询」中切换；离线查看请手动选择 papers.query.jsonl。
         </div>
       </div>
     </header>
@@ -428,6 +435,7 @@
         filtered: [],
         activePaperId: null,
         parseErrors: 0,
+        activeJobId: null,
       };
 
       const elFile = document.getElementById("file");
@@ -444,6 +452,9 @@
       const elStats = document.getElementById("stats");
       const elLoadDefault = document.getElementById("loadDefault");
       const elClear = document.getElementById("clear");
+      const elHistory = document.getElementById("history");
+      const elRefreshHistory = document.getElementById("refreshHistory");
+      const elLoadHint = document.getElementById("loadHint");
 
       function clamp(n, min, max) {
         return Math.max(min, Math.min(max, n));
@@ -491,6 +502,11 @@
 
       function safeText(v) {
         return (v ?? "").toString();
+      }
+
+      function setLoadHint(text) {
+        if (!elLoadHint) return;
+        elLoadHint.textContent = text;
       }
 
       function getArxivUrl(arxivId) {
@@ -785,9 +801,32 @@
         state.all = parseJSONL(text);
         state.filtered = [];
         state.activePaperId = null;
+        state.activeJobId = null;
         renderStatusOptions();
         applyFilters();
         if (state.all.length) renderDetail(state.all[0]);
+        setLoadHint("当前加载：本地文件");
+      }
+
+      async function loadFromJob(jobId) {
+        if (!jobId) return false;
+        try {
+          const resp = await fetch(`/data/${jobId}/papers.query.jsonl`, { cache: "no-store" });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const text = await resp.text();
+          state.all = parseJSONL(text);
+          state.filtered = [];
+          state.activePaperId = null;
+          state.activeJobId = jobId;
+          renderStatusOptions();
+          applyFilters();
+          if (state.all.length) renderDetail(state.all[0]);
+          setLoadHint(`当前加载：${jobId}`);
+          return true;
+        } catch (e) {
+          setLoadHint(`加载失败：${jobId}`);
+          return false;
+        }
       }
 
       async function tryLoadDefault() {
@@ -806,6 +845,7 @@
             renderStatusOptions();
             applyFilters();
             if (state.all.length) renderDetail(state.all[0]);
+            setLoadHint(`当前加载：${path}`);
             return;
           } catch (e) {
             // ignore
@@ -821,6 +861,7 @@
         state.filtered = [];
         state.activePaperId = null;
         state.parseErrors = 0;
+        state.activeJobId = null;
         elQ.value = "";
         elStatus.value = "";
         elList.innerHTML = "";
@@ -828,6 +869,7 @@
         elDetail.innerHTML =
           '<div class="hint">选择左侧任意论文查看 query_response / 错误信息。</div>';
         elStatus.innerHTML = '<option value="">全部</option>';
+        setLoadHint("已清空");
       }
 
       function initLayout() {
@@ -895,7 +937,98 @@
       elLoadDefault.addEventListener("click", () => tryLoadDefault());
       elClear.addEventListener("click", () => clearAll());
 
-      initLayout();
+      async function fetchHistory() {
+        try {
+          const resp = await fetch("/history", { cache: "no-store" });
+          if (!resp.ok) return null;
+          const data = await resp.json();
+          return Array.isArray(data.history) ? data.history : [];
+        } catch {
+          return null;
+        }
+      }
+
+      function formatHistoryLabel(item) {
+        const ts = safeText(item.created_at);
+        let stamp = ts;
+        if (ts) {
+          const d = new Date(ts);
+          if (!Number.isNaN(d.getTime())) {
+            stamp = d.toLocaleString();
+          }
+        }
+        const query = safeText(item.query).trim();
+        const count = item.item_count ? ` · ${item.item_count} 篇` : "";
+        if (stamp && query) return `${stamp} · ${query}${count}`;
+        if (query) return `${query}${count}`;
+        return `${item.job_id || "(未知)"}${count}`;
+      }
+
+      async function refreshHistory(preselectJob) {
+        const history = await fetchHistory();
+        if (history === null) {
+          elHistory.innerHTML = '<option value="">(未启用)</option>';
+          return null;
+        }
+        elHistory.innerHTML = "";
+        if (!history.length) {
+          const opt = document.createElement("option");
+          opt.value = "";
+          opt.textContent = "(暂无历史)";
+          elHistory.appendChild(opt);
+          return history;
+        }
+        for (const item of history) {
+          const opt = document.createElement("option");
+          opt.value = item.job_id || "";
+          opt.textContent = formatHistoryLabel(item);
+          elHistory.appendChild(opt);
+        }
+        if (preselectJob && history.some((h) => h.job_id === preselectJob)) {
+          elHistory.value = preselectJob;
+        }
+        return history;
+      }
+
+      elHistory.addEventListener("change", async () => {
+        const job = elHistory.value;
+        if (!job) return;
+        await loadFromJob(job);
+      });
+
+      elRefreshHistory.addEventListener("click", async () => {
+        const current = elHistory.value;
+        const history = await refreshHistory(current || undefined);
+        if (history && history.length && !elHistory.value) {
+          elHistory.value = history[0].job_id;
+        }
+      });
+
+      async function initPage() {
+        initLayout();
+        const params = new URLSearchParams(window.location.search);
+        const jobParam = params.get("job");
+        const history = await refreshHistory(jobParam || undefined);
+        if (jobParam) {
+          const ok = await loadFromJob(jobParam);
+          if (ok) return;
+        }
+        if (history && history.length) {
+          const latest = history[0].job_id;
+          if (latest) {
+            elHistory.value = latest;
+            await loadFromJob(latest);
+            return;
+          }
+        }
+        if (history === null) {
+          await tryLoadDefault();
+        } else {
+          setLoadHint("暂无历史查询，请等待服务写入结果或手动选择文件。");
+        }
+      }
+
+      initPage();
     </script>
   </body>
 </html>

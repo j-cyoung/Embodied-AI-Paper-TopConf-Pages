@@ -3,9 +3,12 @@
 
 import argparse
 import json
+import subprocess
+import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 class DemoHandler(BaseHTTPRequestHandler):
@@ -27,16 +30,41 @@ class DemoHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_redirect(self, location):
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.end_headers()
+
     def _result_url(self):
         host = "localhost"
         port = self.server.server_address[1]
         return f"http://{host}:{port}/result/demo"
 
+    def _base_dir(self):
+        return Path(__file__).resolve().parent
+
+    def _store_dir(self):
+        return self._base_dir() / "store" / "zotero"
+
+    def _ocr_dir(self):
+        return self._store_dir() / "ocr"
+
+    def _query_dir(self):
+        return self._store_dir() / "query"
+
+    def _items_jsonl(self):
+        return self._store_dir() / "items.jsonl"
+
+    def _items_csv(self):
+        return self._store_dir() / "items.csv"
+
+    def _pages_jsonl(self):
+        return self._ocr_dir() / "papers.pages.jsonl"
+
     def _write_ingest(self, items):
-        base_dir = Path(__file__).resolve().parent
-        store_dir = base_dir / "store" / "zotero"
+        store_dir = self._store_dir()
         store_dir.mkdir(parents=True, exist_ok=True)
-        out_file = store_dir / "items.jsonl"
+        out_file = self._items_jsonl()
         now = datetime.now(timezone.utc).isoformat()
         lines = []
         for item in items:
@@ -49,21 +77,219 @@ class DemoHandler(BaseHTTPRequestHandler):
                 f.write("\n".join(lines) + "\n")
         return len(lines)
 
+    def _run_cmd(self, cmd, cwd=None):
+        cmd_display = " ".join(cmd)
+        print(f"[cmd] {cmd_display}")
+        subprocess.run(cmd, cwd=cwd, check=True)
+
+    def _ensure_ocr_cache(self):
+        base_dir = self._base_dir()
+        self._ocr_dir().mkdir(parents=True, exist_ok=True)
+        # update items.csv from items.jsonl
+        self._run_cmd(
+            [
+                "uv",
+                "run",
+                "python",
+                "zotero_items_to_csv.py",
+                "--jsonl",
+                str(self._items_jsonl()),
+                "--csv_out",
+                str(self._items_csv()),
+            ],
+            cwd=base_dir,
+        )
+        # run OCR with resume to reuse cached results
+        self._run_cmd(
+            [
+                "uv",
+                "run",
+                "python",
+                "pdf_to_md_pymupdf4llm.py",
+                "--csv_in",
+                str(self._items_csv()),
+                "--base_output_dir",
+                str(self._ocr_dir()),
+                "--out_jsonl",
+                "papers.pages.jsonl",
+                "--resume",
+                "--resume_from",
+                str(self._pages_jsonl()),
+            ],
+            cwd=base_dir,
+        )
+
+    def _load_jsonl(self, path):
+        rows = []
+        if not path.exists():
+            return rows
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except Exception:
+                    continue
+        return rows
+
+    def _write_jsonl(self, path, rows):
+        with path.open("w", encoding="utf-8") as f:
+            for row in rows:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    def _filter_pages(self, item_keys, out_path):
+        pages = self._load_jsonl(self._pages_jsonl())
+        key_set = set(item_keys)
+        selected = []
+        for row in pages:
+            paper_id = row.get("paper_id") or row.get("zotero_item_key")
+            if paper_id in key_set:
+                selected.append(row)
+        self._write_jsonl(out_path, selected)
+        return len(selected)
+
+    def _query_job_dir(self, job_id):
+        job_dir = self._query_dir() / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        return job_dir
+
+    def _history_entries(self):
+        query_dir = self._query_dir()
+        if not query_dir.exists():
+            return []
+        entries = []
+        for child in query_dir.iterdir():
+            if not child.is_dir():
+                continue
+            entry = {"job_id": child.name}
+            meta_path = child / "query.json"
+            if meta_path.exists():
+                try:
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    meta = {}
+                entry["created_at"] = meta.get("created_at")
+                entry["query"] = meta.get("query")
+                entry["item_count"] = meta.get("item_count")
+            entries.append(entry)
+
+        def sort_key(item):
+            ts = item.get("created_at") or ""
+            try:
+                return datetime.fromisoformat(ts)
+            except Exception:
+                return datetime.min.replace(tzinfo=timezone.utc)
+
+        entries.sort(key=sort_key, reverse=True)
+        return entries
+
+    def _write_query_snapshot(self, job_dir, payload, items):
+        sections = payload.get("sections") or ""
+        snapshot = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "query": payload.get("query") or "",
+            "sections": sections,
+            "item_keys": payload.get("item_keys") or [],
+            "item_count": len(items),
+        }
+        (job_dir / "query.json").write_text(
+            json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        self._write_jsonl(job_dir / "items.jsonl", items)
+
+    def _run_query_pipeline(self, payload):
+        item_keys = payload.get("item_keys") or []
+        query_text = payload.get("query") or ""
+        sections = payload.get("sections") or "abstract,introduction"
+        if isinstance(sections, list):
+            sections = ",".join([str(s).strip() for s in sections if str(s).strip()])
+        sections = str(sections).strip() or "abstract,introduction"
+        payload["sections"] = sections
+        if not item_keys or not query_text:
+            raise ValueError("missing item_keys or query text")
+
+        job_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:6]
+        job_dir = self._query_job_dir(job_id)
+
+        items_path = self._items_jsonl()
+        if not items_path.exists():
+            raise ValueError("items.jsonl not found; run ingest first")
+        items = self._load_jsonl(items_path)
+        selected = [item for item in items if item.get("item_key") in set(item_keys)]
+        if not selected:
+            raise ValueError("no matching items in items.jsonl")
+        self._write_query_snapshot(job_dir, payload, selected)
+
+        # ensure OCR cache (incremental)
+        self._ensure_ocr_cache()
+
+        # filter OCR pages for selected items
+        filtered_pages = job_dir / "pages.selected.jsonl"
+        self._filter_pages(item_keys, filtered_pages)
+
+        # run query on selected pages
+        self._run_cmd(
+            [
+                "uv",
+                "run",
+                "python",
+                "query_papers.py",
+                "--pages_jsonl",
+                str(filtered_pages),
+                "--base_output_dir",
+                str(job_dir),
+                "--question",
+                query_text,
+                "--sections",
+                sections,
+            ],
+            cwd=self._base_dir(),
+        )
+        return job_id
+
+    def _serve_query_result(self, job_id):
+        return self._send_redirect(f"/query_view.html?job={job_id}")
+
+    def _serve_query_view(self):
+        view_path = self._base_dir() / "query_view.html"
+        if not view_path.exists():
+            return self._send_json(404, {"error": "query_view.html not found"})
+        html = view_path.read_text(encoding="utf-8")
+        return self._send_html(200, html)
+
     def do_GET(self):
-        if self.path == "/health":
+        path = urlparse(self.path).path
+        if path == "/health":
             return self._send_json(200, {"ok": True})
-        if self.path.startswith("/result/"):
-            html = """<!doctype html>
-<html lang=\"en\">
-<head><meta charset=\"utf-8\"><title>PaperView Demo</title></head>
-<body>
-  <h2>PaperView Demo Result</h2>
-  <p>Local service is running and returned this page.</p>
-</body>
-</html>
-"""
-            return self._send_html(200, html)
-        if self.path == "/query":
+        if path == "/history":
+            return self._send_json(200, {"history": self._history_entries()})
+        if path == "/query_view.html":
+            return self._serve_query_view()
+        if path.startswith("/result/"):
+            job_id = path.split("/result/")[-1].strip("/")
+            if job_id == "demo":
+                return self._send_redirect("/query_view.html")
+            return self._serve_query_result(job_id)
+        if path.startswith("/data/"):
+            rel = path[len("/data/"):].lstrip("/")
+            target = (self._query_dir() / rel).resolve()
+            if not str(target).startswith(str(self._query_dir().resolve())):
+                return self._send_json(403, {"error": "forbidden"})
+            if not target.exists():
+                return self._send_json(404, {"error": "not found"})
+            if target.is_dir():
+                return self._send_json(400, {"error": "not a file"})
+            body = target.read_bytes()
+            self.send_response(200)
+            if target.suffix.lower() == ".jsonl":
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/query":
             return self._send_json(200, {"result_url": self._result_url()})
         return self._send_json(404, {"error": "not found"})
 
@@ -79,7 +305,12 @@ class DemoHandler(BaseHTTPRequestHandler):
             item_keys = payload.get("item_keys") or []
             if query_text:
                 print(f"[query] {query_text} | items={len(item_keys)}")
-            return self._send_json(200, {"result_url": self._result_url()})
+            try:
+                job_id = self._run_query_pipeline(payload)
+            except Exception as e:
+                return self._send_json(500, {"error": str(e)})
+            result_url = f"http://localhost:{self.server.server_address[1]}/result/{job_id}"
+            return self._send_json(200, {"result_url": result_url, "job_id": job_id})
         if self.path == "/ingest":
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")

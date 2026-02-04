@@ -2,6 +2,7 @@
 
 var pluginID = null;
 var SERVICE_BASE_URL = "http://127.0.0.1:20341";
+var LAST_QUERY_SECTIONS = "abstract,introduction";
 var cleanupHandlers = [];
 
 function getServiceBaseUrl() {
@@ -116,6 +117,24 @@ function promptQueryText() {
   }
 }
 
+function promptQuerySections() {
+  try {
+    const win = Zotero.getMainWindow();
+    const text = win.prompt(
+      "请输入查询章节（逗号分隔，如：abstract,introduction,methods）：",
+      LAST_QUERY_SECTIONS
+    );
+    if (text === null) return null;
+    const trimmed = text.trim();
+    if (!trimmed) return LAST_QUERY_SECTIONS;
+    LAST_QUERY_SECTIONS = trimmed;
+    return trimmed;
+  } catch (err) {
+    Zotero.debug(`[PaperView] prompt sections error: ${err}`);
+    return LAST_QUERY_SECTIONS;
+  }
+}
+
 async function ingestItems(items) {
   const baseUrl = getServiceBaseUrl();
   const payload = {
@@ -133,9 +152,13 @@ async function ingestItems(items) {
   return JSON.parse(text);
 }
 
-async function queryService(itemKeys, queryText) {
+async function queryService(itemKeys, queryText, sectionsText) {
   const baseUrl = getServiceBaseUrl();
-  const payload = { item_keys: itemKeys, query: queryText };
+  const payload = {
+    item_keys: itemKeys,
+    query: queryText,
+    sections: sectionsText || ""
+  };
   const resp = await Zotero.HTTP.request("POST", `${baseUrl}/query`, {
     body: JSON.stringify(payload),
     headers: { "Content-Type": "application/json" }
@@ -154,48 +177,80 @@ function attachMenuToWindow(win) {
     const doc = win.document;
     const menu = doc.getElementById("zotero-itemmenu");
     if (!menu) return;
-    if (doc.getElementById("paperview-query-menuitem")) return;
+    let menuitem = doc.getElementById("paperview-query-menuitem");
+    if (!menuitem) {
+      menuitem = doc.createXULElement
+        ? doc.createXULElement("menuitem")
+        : doc.createElement("menuitem");
+      menuitem.setAttribute("id", "paperview-query-menuitem");
+      menuitem.setAttribute("label", "Query");
 
-    const menuitem = doc.createXULElement
-      ? doc.createXULElement("menuitem")
-      : doc.createElement("menuitem");
-    menuitem.setAttribute("id", "paperview-query-menuitem");
-    menuitem.setAttribute("label", "Query");
-
-    const onCommand = async () => {
-      try {
-        const items = Zotero.getActiveZoteroPane().getSelectedItems();
-        const keys = items.map((item) => item.key);
-        Zotero.debug(
-          `[PaperView] Selected ${keys.length} item(s): ${keys.join(", ")}`
-        );
-        const queryText = promptQueryText();
-        if (!queryText) {
-          Zotero.debug("[PaperView] Query cancelled");
-          return;
+      const onCommand = async () => {
+        try {
+          const items = Zotero.getActiveZoteroPane().getSelectedItems();
+          const keys = items.map((item) => item.key);
+          Zotero.debug(
+            `[PaperView] Selected ${keys.length} item(s): ${keys.join(", ")}`
+          );
+          const queryText = promptQueryText();
+          if (!queryText) {
+            Zotero.debug("[PaperView] Query cancelled");
+            return;
+          }
+          const sectionsText = promptQuerySections();
+          if (!sectionsText) {
+            Zotero.debug("[PaperView] Query sections cancelled");
+            return;
+          }
+          const ingest = await ingestItems(items);
+          Zotero.debug(`[PaperView] Ingested: ${JSON.stringify(ingest)}`);
+          await queryService(keys, queryText, sectionsText);
+        } catch (err) {
+          Zotero.debug(`[PaperView] onCommand error: ${err}`);
         }
-        const ingest = await ingestItems(items);
-        Zotero.debug(`[PaperView] Ingested: ${JSON.stringify(ingest)}`);
-        await queryService(keys, queryText);
-      } catch (err) {
-        Zotero.debug(`[PaperView] onCommand error: ${err}`);
-      }
-    };
+      };
 
-    const onPopupShowing = () => {
-      const items = Zotero.getActiveZoteroPane().getSelectedItems();
-      menuitem.hidden = !items || items.length === 0;
-    };
+      const onPopupShowing = () => {
+        const items = Zotero.getActiveZoteroPane().getSelectedItems();
+        menuitem.hidden = !items || items.length === 0;
+      };
 
-    menuitem.addEventListener("command", onCommand);
-    menu.addEventListener("popupshowing", onPopupShowing);
-    menu.appendChild(menuitem);
+      menuitem.addEventListener("command", onCommand);
+      menu.addEventListener("popupshowing", onPopupShowing);
+      menu.appendChild(menuitem);
 
-    cleanupHandlers.push(() => {
-      menu.removeEventListener("popupshowing", onPopupShowing);
-      menuitem.removeEventListener("command", onCommand);
-      if (menuitem.parentNode) menuitem.parentNode.removeChild(menuitem);
-    });
+      cleanupHandlers.push(() => {
+        menu.removeEventListener("popupshowing", onPopupShowing);
+        menuitem.removeEventListener("command", onCommand);
+        if (menuitem.parentNode) menuitem.parentNode.removeChild(menuitem);
+      });
+    }
+
+    let historyItem = doc.getElementById("paperview-query-history-menuitem");
+    if (!historyItem) {
+      historyItem = doc.createXULElement
+        ? doc.createXULElement("menuitem")
+        : doc.createElement("menuitem");
+      historyItem.setAttribute("id", "paperview-query-history-menuitem");
+      historyItem.setAttribute("label", "Query History");
+
+      const onHistoryCommand = () => {
+        try {
+          const baseUrl = getServiceBaseUrl();
+          Zotero.launchURL(`${baseUrl}/query_view.html`);
+        } catch (err) {
+          Zotero.debug(`[PaperView] history command error: ${err}`);
+        }
+      };
+
+      historyItem.addEventListener("command", onHistoryCommand);
+      menu.appendChild(historyItem);
+
+      cleanupHandlers.push(() => {
+        historyItem.removeEventListener("command", onHistoryCommand);
+        if (historyItem.parentNode) historyItem.parentNode.removeChild(historyItem);
+      });
+    }
   } catch (err) {
     Zotero.debug(`[PaperView] attachMenuToWindow error: ${err}`);
   }
