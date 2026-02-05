@@ -21,6 +21,7 @@ from paper_utils import (
     write_jsonl,
     compute_paper_id,
     compute_source_hash,
+    sha1_text,
 )
 
 
@@ -71,6 +72,22 @@ SECTION_PATTERNS = {
         r"^discussion\s*$",
         r"^总结\s*$",
     ],
+}
+
+SECTION_LABELS = {
+    "abstract": ["abstract", "摘要"],
+    "introduction": ["introduction", "intro", "引言"],
+    "related_work": [
+        "related work",
+        "related works",
+        "preliminaries",
+        "preliminary",
+        "background",
+        "相关工作",
+    ],
+    "methods": ["methods", "method", "methodology", "approach", "方法", "方法论"],
+    "experiments": ["experiments", "experiment", "evaluation", "results", "实验", "结果"],
+    "conclusion": ["conclusion", "conclusions", "discussion", "总结"],
 }
 
 
@@ -142,6 +159,26 @@ def _matches_any_pattern(norm_line: str, pattern_strs: List[str]) -> bool:
         if re.match(p, norm_line, re.IGNORECASE):
             return True
     return False
+
+
+def _matches_section_heading(raw_line: str, norm_line: str, section_name: str) -> Optional[str]:
+    patterns = SECTION_PATTERNS.get(section_name, [])
+    if _matches_any_pattern(norm_line, patterns):
+        return "full"
+
+    if not _is_probably_heading_line(raw_line, norm_line):
+        return None
+
+    labels = SECTION_LABELS.get(section_name, [])
+    lower = norm_line.lower()
+    for label in labels:
+        if lower.startswith(label):
+            tail = lower[len(label):]
+            if not tail:
+                return "full"
+            if tail[0] in (" ", ".", ":", "：", "-", "–", "—", ")", "）"):
+                return "inline"
+    return None
 
 
 @dataclass
@@ -318,9 +355,14 @@ def find_section_in_text(text: str, section_name: str) -> Optional[Tuple[int, in
     for i, norm in enumerate(norm_lines):
         if not norm:
             continue
-        if _matches_any_pattern(norm, patterns):
-            section_start = i + 1  # 下一行开始
+        match_type = _matches_section_heading(lines[i], norm, section_name)
+        if match_type:
+            section_start = i if match_type == "inline" else i + 1
             break
+        if not SECTION_PATTERNS.get(section_name):
+            if _matches_any_pattern(norm, patterns):
+                section_start = i + 1  # 下一行开始
+                break
     
     if section_start is None:
         return None
@@ -335,10 +377,11 @@ def find_section_in_text(text: str, section_name: str) -> Optional[Tuple[int, in
         if not _is_probably_heading_line(lines[i], norm):
             continue
 
-        for other_section, other_patterns in SECTION_PATTERNS.items():
+        for other_section in SECTION_PATTERNS.keys():
             if other_section == section_name:
                 continue
-            if _matches_any_pattern(norm, other_patterns):
+            match_type = _matches_section_heading(lines[i], norm, other_section)
+            if match_type:
                 section_end = i
                 return (section_start, section_end)
 
@@ -418,41 +461,104 @@ def extract_sections_from_paper(
     return result
 
 
-def build_prompt(
+def _parse_creators(value: Any) -> List[Dict[str, Any]]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [v for v in value if isinstance(v, dict) or isinstance(v, str)]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [v for v in parsed if isinstance(v, dict) or isinstance(v, str)]
+        except Exception:
+            return []
+    return []
+
+
+def _format_creators(creators: Any) -> str:
+    parsed = _parse_creators(creators)
+    names: List[str] = []
+    for c in parsed:
+        if isinstance(c, str):
+            name = c.strip()
+            if name:
+                names.append(name)
+            continue
+        first = (c.get("firstName") or c.get("first_name") or "").strip()
+        last = (c.get("lastName") or c.get("last_name") or "").strip()
+        name = " ".join([x for x in [first, last] if x]).strip()
+        if not name:
+            name = (c.get("name") or "").strip()
+        if name:
+            names.append(name)
+    return ", ".join(names)
+
+
+def _pick_venue(paper: Dict[str, Any]) -> str:
+    for key in (
+        "venue",
+        "conference_name",
+        "proceedings_title",
+        "publication_title",
+        "book_title",
+        "series",
+    ):
+        val = (paper.get(key) or "").strip()
+        if val:
+            return val
+    return ""
+
+
+def _collect_body_text(
+    paper: Dict[str, Any],
+    section_names: List[str],
+    max_body_length: int,
+) -> Tuple[str, List[str]]:
+    sections = extract_sections_from_paper(paper, section_names)
+    if not sections:
+        return "", []
+    if "full_text" in sections:
+        body = sections.get("full_text") or ""
+        found = ["full_text"]
+    else:
+        ordered: List[str] = []
+        for name in section_names:
+            if name in sections and sections[name]:
+                ordered.append(sections[name])
+        if not ordered:
+            ordered = [v for v in sections.values() if v]
+        body = "\n\n".join(ordered).strip()
+        found = [k for k in sections.keys()]
+
+    if max_body_length and len(body) > max_body_length:
+        body = body[:max_body_length] + "..."
+    return body, found
+
+
+def build_structured_prompt(
     question: str,
-    paper_title: str,
-    paper_abstract: Optional[str],
-    sections: Dict[str, str],
-    max_section_length: int = 8000,
+    papers: List[Dict[str, Any]],
 ) -> str:
-    """构造查询prompt"""
-    parts = []
-    
-    parts.append(f"论文标题: {paper_title}\n")
-
-    if sections and "full_text" in sections:
-        paper_abstract = None
-
-    if paper_abstract:
-        parts.append(f"摘要:\n{paper_abstract}\n")
-    
-    if sections:
-        # 避免摘要重复：abstract 既可能来自 paper_abstract，也可能在 sections 中出现
-        if paper_abstract and "abstract" in sections:
-            sections = dict(sections)
-            sections.pop("abstract", None)
-
-        parts.append("论文相关章节内容:\n")
-        for section_name, section_text in sections.items():
-            # 限制每个章节的长度
-            if len(section_text) > max_section_length:
-                section_text = section_text[:max_section_length] + "..."
-            parts.append(f"[{section_name.upper()}]\n{section_text}\n")
-    
-    parts.append(f"\n问题: {question}\n")
-    parts.append("\n请基于上述论文内容回答这个问题。如果论文中没有相关信息，请说明。")
-    
-    return "\n".join(parts)
+    """构造结构化 Markdown prompt（不包含章节信息）"""
+    lines: List[str] = []
+    lines.append("# Query")
+    lines.append(f"问题: {question}")
+    lines.append("")
+    lines.append("# Papers")
+    for idx, p in enumerate(papers, 1):
+        lines.append(f"## Paper {idx}")
+        lines.append(f"标题: {p.get('title') or ''}")
+        lines.append(f"作者: {p.get('authors') or ''}")
+        lines.append(f"会议/期刊: {p.get('venue') or ''}")
+        lines.append(f"年份: {p.get('year') or ''}")
+        lines.append(f"DOI: {p.get('doi') or ''}")
+        lines.append(f"URL: {p.get('url') or ''}")
+        lines.append("正文:")
+        lines.append(p.get("body") or "")
+        lines.append("")
+    lines.append("请基于上述论文内容回答问题。如果论文中没有相关信息，请说明。")
+    return "\n".join(lines)
 
 
 def main() -> None:
@@ -494,7 +600,7 @@ def main() -> None:
     ap.add_argument("--system_prompt", default="",
                     help="系统提示词（可选）")
     ap.add_argument("--max_section_length", type=int, default=8000,
-                    help="每个章节的最大长度（字符数）")
+                    help="正文最大长度（字符数，按每篇论文截断）")
     
     ap.add_argument("--model", default="Qwen/Qwen2.5-72B-Instruct",
                     help="LLM模型名称")
@@ -522,6 +628,8 @@ def main() -> None:
                     help="遇到429时持续重试")
     ap.add_argument("--retry_wait_s", type=int, default=300,
                     help="429重试等待秒数")
+    ap.add_argument("--query_mode", default="single",
+                    help="查询模式：single 或 merge")
     
     args = ap.parse_args()
     
@@ -561,6 +669,10 @@ def main() -> None:
     section_names = [s.strip() for s in args.sections.split(",") if s.strip()]
     if not section_names:
         raise SystemExit("错误: 必须指定至少一个章节")
+
+    query_mode = (args.query_mode or "single").strip().lower()
+    if query_mode not in {"single", "merge"}:
+        raise SystemExit("错误: query_mode 仅支持 single 或 merge")
     
     # 加载论文数据
     if not os.path.exists(args.pages_jsonl):
@@ -591,6 +703,7 @@ def main() -> None:
     print(f"共 {len(papers)} 篇论文待处理")
     print(f"查询章节: {', '.join(section_names)}")
     print(f"查询问题: {args.question}")
+    print(f"查询模式: {query_mode}")
     
     # 初始化LLM provider
     api_key = (
@@ -619,6 +732,27 @@ def main() -> None:
             print(f"从 {resume_path} 加载了 {len(existing_idx)} 条已有结果")
     
     rate_state = RateLimitController(args.concurrency, args.retry_wait_s)
+
+    def build_paper_payload(
+        paper: Dict[str, Any],
+        section_names: List[str],
+        max_body_length: int,
+    ) -> Tuple[Optional[Dict[str, Any]], List[str], str]:
+        body, found_sections = _collect_body_text(paper, section_names, max_body_length)
+        if not body:
+            return None, [], ""
+        payload = {
+            "paper_id": paper.get("paper_id"),
+            "title": paper.get("title", ""),
+            "authors": _format_creators(paper.get("creators"))
+            or (paper.get("authors") or paper.get("author") or ""),
+            "venue": _pick_venue(paper),
+            "year": paper.get("year") or "",
+            "doi": paper.get("doi") or "",
+            "url": paper.get("url") or paper.get("paper_url") or paper.get("page_url") or "",
+            "body": body,
+        }
+        return payload, found_sections, body
     
     def process_one(idx: int, paper: Dict[str, Any]) -> Dict[str, Any]:
         paper_id = paper.get("paper_id")
@@ -652,22 +786,20 @@ def main() -> None:
         
         start_ts = time.time()
         try:
-            # 提取章节内容
-            sections = extract_sections_from_paper(paper, section_names)
-            
-            if not sections:
+            payload, found_sections, body = build_paper_payload(
+                paper, section_names, args.max_section_length
+            )
+
+            if not payload or not body:
                 out["query_status"] = "no_sections"
                 out["query_error"] = f"未找到指定章节: {', '.join(section_names)}"
                 out["query_elapsed_ms"] = int((time.time() - start_ts) * 1000)
                 return {"idx": idx, "data": out}
             
-            # 构造prompt
-            prompt = build_prompt(
+            # 构造结构化prompt
+            prompt = build_structured_prompt(
                 question=args.question,
-                paper_title=paper.get("title", ""),
-                paper_abstract=paper.get("abstract"),
-                sections=sections,
-                max_section_length=args.max_section_length,
+                papers=[payload],
             )
             
             # 调用LLM
@@ -705,7 +837,7 @@ def main() -> None:
             }
             out["query_model"] = resp.model
             out["query_elapsed_ms"] = elapsed_ms
-            out["query_sections_found"] = list(sections.keys())
+            out["query_sections_found"] = found_sections
             
         except Exception as e:
             elapsed_ms = int((time.time() - start_ts) * 1000)
@@ -714,18 +846,124 @@ def main() -> None:
             out["query_elapsed_ms"] = elapsed_ms
         
         return {"idx": idx, "data": out}
-    
+
+    def process_merge(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        write_progress(0, len(papers))
+        merged_papers: List[Dict[str, Any]] = []
+        prompt_papers: List[Dict[str, Any]] = []
+        skipped: List[Dict[str, Any]] = []
+        found_union: List[str] = []
+
+        for paper in papers:
+            payload, found_sections, body = build_paper_payload(
+                paper, section_names, args.max_section_length
+            )
+            if not payload or not body:
+                skipped.append({
+                    "paper_id": paper.get("paper_id"),
+                    "title": paper.get("title", ""),
+                    "reason": "no_sections",
+                })
+                continue
+            prompt_papers.append(payload)
+            merged_papers.append({
+                "paper_id": payload.get("paper_id"),
+                "title": payload.get("title"),
+                "authors": payload.get("authors"),
+                "venue": payload.get("venue"),
+                "year": payload.get("year"),
+                "doi": payload.get("doi"),
+                "url": payload.get("url"),
+            })
+            for s in found_sections:
+                if s not in found_union:
+                    found_union.append(s)
+
+        out: Dict[str, Any] = {}
+        merge_id = sha1_text(args.question + "|" + ",".join(sorted([
+            str(p.get("paper_id") or "") for p in papers
+        ])))
+        out["paper_id"] = f"merge_{merge_id}"
+        out["title"] = f"Concat Query ({len(merged_papers)} papers)"
+        out["query_question"] = args.question
+        out["query_sections"] = ",".join(section_names)
+        out["query_status"] = "init"
+        out["query_error"] = None
+        out["query_response"] = None
+        out["query_usage"] = None
+        out["query_model"] = None
+        out["query_elapsed_ms"] = None
+        out["merged_papers"] = merged_papers
+        out["merge_skipped"] = skipped
+
+        if not prompt_papers:
+            out["query_status"] = "no_sections"
+            out["query_error"] = f"未找到指定章节: {', '.join(section_names)}"
+            out["query_sections_found"] = []
+            write_progress(len(papers), len(papers))
+            return [out]
+
+        start_ts = time.time()
+        try:
+            prompt = build_structured_prompt(
+                question=args.question,
+                papers=prompt_papers,
+            )
+
+            while True:
+                rate_state.acquire()
+                try:
+                    resp = provider.generate(
+                        prompt=prompt,
+                        system=args.system_prompt if args.system_prompt else None,
+                        temperature=args.temperature,
+                        max_output_tokens=args.max_output_tokens,
+                    )
+                    rate_state.on_success()
+                    break
+                except requests.HTTPError as e:
+                    status = getattr(e.response, "status_code", None)
+                    if status == 429 and args.retry_on_429:
+                        rate_state.on_rate_limit()
+                        continue
+                    raise
+                finally:
+                    rate_state.release()
+
+            elapsed_ms = int((time.time() - start_ts) * 1000)
+            out["query_status"] = "ok"
+            out["query_response"] = resp.text.strip()
+            out["query_usage"] = {
+                "prompt_tokens": resp.usage.prompt_tokens,
+                "output_tokens": resp.usage.output_tokens,
+                "total_tokens": resp.usage.total_tokens,
+            }
+            out["query_model"] = resp.model
+            out["query_elapsed_ms"] = elapsed_ms
+            out["query_sections_found"] = found_union
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_ts) * 1000)
+            out["query_status"] = "error"
+            out["query_error"] = str(e)
+            out["query_elapsed_ms"] = elapsed_ms
+
+        write_progress(len(papers), len(papers))
+        return [out]
+
     # 处理所有论文
-    results: List[Dict[str, Any]] = [None] * len(papers)
-    write_progress(0, len(papers))
-    with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
-        futures = [ex.submit(process_one, i, paper) for i, paper in enumerate(papers)]
-        for fut in tqdm(as_completed(futures), total=len(futures), desc="查询论文", unit="篇"):
-            res = fut.result()
-            results[res["idx"]] = res["data"]
-            done = sum(1 for r in results if r is not None)
-            write_progress(done, len(papers))
-    write_progress(len(papers), len(papers))
+    if query_mode == "merge":
+        results = process_merge(papers)
+    else:
+        results: List[Dict[str, Any]] = [None] * len(papers)
+        write_progress(0, len(papers))
+        with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
+            futures = [ex.submit(process_one, i, paper) for i, paper in enumerate(papers)]
+            for fut in tqdm(as_completed(futures), total=len(futures), desc="查询论文", unit="篇"):
+                res = fut.result()
+                results[res["idx"]] = res["data"]
+                done = sum(1 for r in results if r is not None)
+                write_progress(done, len(papers))
+        write_progress(len(papers), len(papers))
     
     # 保存结果
     write_jsonl(args.out_jsonl, results)

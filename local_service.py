@@ -219,6 +219,7 @@ class DemoHandler(BaseHTTPRequestHandler):
             "created_at": datetime.now(timezone.utc).isoformat(),
             "query": payload.get("query") or "",
             "sections": sections,
+            "query_mode": payload.get("query_mode") or "single",
             "item_keys": payload.get("item_keys") or [],
             "item_count": len(items),
         }
@@ -230,6 +231,9 @@ class DemoHandler(BaseHTTPRequestHandler):
     def _run_query_pipeline(self, payload, job_id):
         item_keys = payload.get("item_keys") or []
         query_text = payload.get("query") or ""
+        query_mode = (payload.get("query_mode") or "single").strip().lower()
+        if query_mode not in {"single", "merge"}:
+            query_mode = "single"
         sections = payload.get("sections")
         if (not sections or str(sections).strip() == "") and query_text:
             match = re.match(r"^\s*\[([^\]]+)\]\s*(.*)$", str(query_text))
@@ -252,6 +256,7 @@ class DemoHandler(BaseHTTPRequestHandler):
             else:
                 sections = ",".join(tokens)
         payload["sections"] = sections
+        payload["query_mode"] = query_mode
         if not item_keys or not query_text:
             raise ValueError("missing item_keys or query text")
 
@@ -297,6 +302,8 @@ class DemoHandler(BaseHTTPRequestHandler):
             sections,
             "--progress_path",
             str(progress_path),
+            "--query_mode",
+            query_mode,
         ]
         proc = subprocess.Popen(cmd, cwd=self._base_dir())
         while proc.poll() is None:

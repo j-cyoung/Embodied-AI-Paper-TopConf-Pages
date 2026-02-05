@@ -240,6 +240,13 @@
         font-size: 12px;
         color: #334155;
       }
+      .section .paper-list {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--text);
+        font-size: 13px;
+        line-height: 1.5;
+      }
       .response {
         white-space: pre-wrap;
         line-height: 1.6;
@@ -400,6 +407,7 @@
           arxiv_id: safeText(rec.arxiv_id),
           year: rec.year,
           venue: safeText(rec.venue),
+          merged_papers: Array.isArray(rec.merged_papers) ? rec.merged_papers : [],
           query_status: status,
           query_model: safeText(rec.query_model),
           query_sections: safeText(rec.query_sections),
@@ -599,6 +607,30 @@
             body.appendChild(sectionInfo);
           }
 
+          if (Array.isArray(r.merged_papers) && r.merged_papers.length) {
+            const merged = document.createElement("div");
+            merged.className = "section";
+            const mergedTitle = document.createElement("h3");
+            mergedTitle.textContent = "本次查询包含论文";
+            merged.appendChild(mergedTitle);
+            const list = document.createElement("ul");
+            list.className = "paper-list";
+            for (const p of r.merged_papers) {
+              const li = document.createElement("li");
+              const parts = [];
+              const titleText = safeText(p.title).trim();
+              if (titleText) parts.push(titleText);
+              const authorText = safeText(p.authors).trim();
+              if (authorText) parts.push(authorText);
+              const venueText = safeText(p.venue).trim();
+              if (venueText) parts.push(venueText);
+              li.textContent = parts.join(" · ");
+              list.appendChild(li);
+            }
+            merged.appendChild(list);
+            body.appendChild(merged);
+          }
+
           const qDetails = document.createElement("details");
           qDetails.className = "question";
           const qSummary = document.createElement("summary");
@@ -683,7 +715,7 @@
           if (st && r.query_status !== st) continue;
           if (q) {
             const hay =
-              `${r.title}\n${r.arxiv_id}\n${r.query_response}\n${r.query_error}`.toLowerCase();
+              `${r.title}\n${r.arxiv_id}\n${r.query_response}\n${r.query_error}\n${JSON.stringify(r.merged_papers || [])}`.toLowerCase();
             if (!hay.includes(q)) continue;
           }
           out.push(r);

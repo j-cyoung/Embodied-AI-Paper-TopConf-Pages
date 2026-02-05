@@ -154,12 +154,13 @@ async function ingestItems(items) {
   return JSON.parse(text);
 }
 
-async function queryService(itemKeys, queryText, sectionsText) {
+async function queryService(itemKeys, queryText, sectionsText, queryMode) {
   const baseUrl = getServiceBaseUrl();
   const payload = {
     item_keys: itemKeys,
     query: queryText,
-    sections: sectionsText || ""
+    sections: sectionsText || "",
+    query_mode: queryMode || "single"
   };
   const resp = await Zotero.HTTP.request("POST", `${baseUrl}/query`, {
     body: JSON.stringify(payload),
@@ -257,7 +258,7 @@ function attachMenuToWindow(win) {
           const sectionsText = "";
           const ingest = await ingestItems(items);
           Zotero.debug(`[PaperView] Ingested: ${JSON.stringify(ingest)}`);
-          const result = await queryService(keys, queryText, sectionsText);
+          const result = await queryService(keys, queryText, sectionsText, "single");
           if (result && result.job_id && result.result_url) {
             await showQueryProgress(result.job_id, result.result_url);
           } else if (result && result.result_url) {
@@ -270,7 +271,10 @@ function attachMenuToWindow(win) {
 
       const onPopupShowing = () => {
         const items = Zotero.getActiveZoteroPane().getSelectedItems();
-        menuitem.hidden = !items || items.length === 0;
+        const hidden = !items || items.length === 0;
+        menuitem.hidden = hidden;
+        const concatNode = doc.getElementById("paperview-concat-query-menuitem");
+        if (concatNode) concatNode.hidden = hidden;
       };
 
       menuitem.addEventListener("command", onCommand);
@@ -281,6 +285,50 @@ function attachMenuToWindow(win) {
         menu.removeEventListener("popupshowing", onPopupShowing);
         menuitem.removeEventListener("command", onCommand);
         if (menuitem.parentNode) menuitem.parentNode.removeChild(menuitem);
+      });
+    }
+
+    let concatItem = doc.getElementById("paperview-concat-query-menuitem");
+    if (!concatItem) {
+      concatItem = doc.createXULElement
+        ? doc.createXULElement("menuitem")
+        : doc.createElement("menuitem");
+      concatItem.setAttribute("id", "paperview-concat-query-menuitem");
+      concatItem.setAttribute("label", "Concat Query");
+
+      const onConcatCommand = async () => {
+        try {
+          const items = Zotero.getActiveZoteroPane().getSelectedItems();
+          const keys = items.map((item) => item.key);
+          Zotero.debug(
+            `[PaperView] Selected ${keys.length} item(s) for concat: ${keys.join(", ")}`
+          );
+          const rawQuery = promptQueryText();
+          if (!rawQuery) {
+            Zotero.debug("[PaperView] Concat query cancelled");
+            return;
+          }
+          const queryText = rawQuery;
+          const sectionsText = "";
+          const ingest = await ingestItems(items);
+          Zotero.debug(`[PaperView] Ingested: ${JSON.stringify(ingest)}`);
+          const result = await queryService(keys, queryText, sectionsText, "merge");
+          if (result && result.job_id && result.result_url) {
+            await showQueryProgress(result.job_id, result.result_url);
+          } else if (result && result.result_url) {
+            Zotero.launchURL(result.result_url);
+          }
+        } catch (err) {
+          Zotero.debug(`[PaperView] onConcatCommand error: ${err}`);
+        }
+      };
+
+      concatItem.addEventListener("command", onConcatCommand);
+      menu.appendChild(concatItem);
+
+      cleanupHandlers.push(() => {
+        concatItem.removeEventListener("command", onConcatCommand);
+        if (concatItem.parentNode) concatItem.parentNode.removeChild(concatItem);
       });
     }
 
