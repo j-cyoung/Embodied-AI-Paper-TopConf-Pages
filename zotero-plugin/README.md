@@ -15,16 +15,38 @@
 ```
 2. 在 Zotero 插件管理器中拖入 `paperview-query.xpi` 安装
 
+**环境与依赖**
+- Zotero 8.x
+- Python 3.10+（需在 PATH 中可用，用于创建 venv）
+
 **服务启动/停止（插件内）**
 - Zotero 顶部菜单：`Tools` → `PaperView: Start Service` / `PaperView: Stop Service`
 - 插件加载时会自动准备 Python 环境（首次可能较慢）
 - Zotero 退出时会自动停止服务
+
+**Python 环境位置**
+- venv 路径：`<ZoteroProfile>/paperview/venv`
+
 **API Key 设置**
 - Zotero 顶部菜单：`Tools` → `PaperView: Set API Key`
 - 插件会将 API Key 传入服务进程（等价于设置 `OPENAI_API_KEY`/`SILICONFLOW_API_KEY`）
+
 **LLM 配置（文件 + 菜单）**
 - 菜单：`Tools` → `PaperView: LLM Settings`
 - 配置文件：`<ZoteroProfile>/paperview/llm_config.json`（默认基于当前配置自动生成）
+
+**LLM 配置字段**
+- `base_url`
+- `model`
+- `api_key`
+- `temperature`
+- `max_output_tokens`
+- `concurrency`
+- `retry_on_429`
+- `retry_wait_s`
+
+**支持的 API 风格**
+- OpenAI-compatible Chat Completions（`/chat/completions`）
 
 **日志位置（便于调试）**
 - 服务输出：`<ZoteroProfile>/paperview/logs/service.log`
@@ -61,16 +83,38 @@ Zotero 顶部菜单：`Tools` → `PaperView: Set Service URL`
 ```
 2. Drag `paperview-query.xpi` into Zotero Add-ons manager
 
+**Requirements**
+- Zotero 8.x
+- Python 3.10+ (available in PATH for venv creation)
+
 **Start/Stop Service (in Zotero)**
 - Zotero menu: `Tools` → `PaperView: Start Service` / `PaperView: Stop Service`
 - Env bootstrap runs automatically after install (first run may take time)
 - Service stops automatically when Zotero quits
+
+**Python Environment Location**
+- venv path: `<ZoteroProfile>/paperview/venv`
+
 **API Key**
 - Zotero menu: `Tools` → `PaperView: Set API Key`
 - The key is injected into the service process as `OPENAI_API_KEY` / `SILICONFLOW_API_KEY`
+
 **LLM Config (file + menu)**
 - Menu: `Tools` → `PaperView: LLM Settings`
 - Config file: `<ZoteroProfile>/paperview/llm_config.json` (auto-generated from current settings)
+
+**LLM Config Fields**
+- `base_url`
+- `model`
+- `api_key`
+- `temperature`
+- `max_output_tokens`
+- `concurrency`
+- `retry_on_429`
+- `retry_wait_s`
+
+**Supported API Style**
+- OpenAI-compatible Chat Completions (`/chat/completions`)
 
 **Logs (for debugging)**
 - Service: `<ZoteroProfile>/paperview/logs/service.log`

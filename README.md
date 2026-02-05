@@ -16,22 +16,20 @@ PaperView 是一个面向论文检索与批处理的本地流水线项目，集�
 **环境要求**
 - macOS
 - Zotero 8.x
-- Python 3.10+
+- Python 3.10+（用于插件创建 venv）
 - LLM API Key（`SILICONFLOW_API_KEY` 或 `OPENAI_API_KEY`）
 
 **快速开始**
-1. 启动后端服务（推荐端口 20341）
-```bash
-python local_service.py --port 20341
-```
-2. 打包插件并安装
+1. 打包插件并安装
 ```bash
 ./scripts/build_xpi.sh
 ```
-3. 在 Zotero 插件管理器中拖入 `paperview-query.xpi` 安装
-4. 设置服务地址：Zotero 顶部菜单 `Tools` → `PaperView: Set Service URL`
+2. 在 Zotero 插件管理器中拖入 `paperview-query.xpi` 安装并重启
+3. 设置服务地址：Zotero 顶部菜单 `Tools` → `PaperView: Set Service URL`
    例如：`http://127.0.0.1:20341`
-5. 在 Zotero 文献列表中右键选择 `Query` 发起查询
+4. 设置 API Key：`Tools` → `PaperView: Set API Key`
+5. 启动服务：`Tools` → `PaperView: Start Service`
+6. 在 Zotero 文献列表中右键选择 `Query` 发起查询
 
 **查询输入格式**
 - 直接输入问题（默认全文）：
@@ -68,11 +66,17 @@ python local_service.py --port 20341
 **配置项**
 - 服务地址：`Tools` → `PaperView: Set Service URL`
 - 本地服务端口：`local_service.py --port <PORT>`（默认 20341）
+
 **API Key（推荐用插件设置）**
 - Zotero 菜单：`Tools` → `PaperView: Set API Key`
+
 **LLM 配置（文件 + 菜单）**
 - Zotero 菜单：`Tools` → `PaperView: LLM Settings`
 - 配置文件：`<ZoteroProfile>/paperview/llm_config.json`
+
+**支持的 API 风格**
+- OpenAI-compatible Chat Completions（`/chat/completions`）
+
 **插件日志（Profile 目录）**
 - 服务输出：`<ZoteroProfile>/paperview/logs/service.log`
 - 环境安装：`<ZoteroProfile>/paperview/logs/env-install.log`
@@ -107,22 +111,20 @@ PaperView is a local pipeline for paper retrieval and batch analysis. It integra
 **Requirements**
 - macOS
 - Zotero 8.x
-- Python 3.10+
+- Python 3.10+ (used for plugin venv)
 - LLM API Key (`SILICONFLOW_API_KEY` or `OPENAI_API_KEY`)
 
 **Quick Start**
-1. Start the backend service (recommended port 20341)
-```bash
-python local_service.py --port 20341
-```
-2. Build and install the plugin
+1. Build and install the plugin
 ```bash
 ./scripts/build_xpi.sh
 ```
-3. Drag `paperview-query.xpi` into Zotero’s Add-ons manager
-4. Set the service URL in Zotero: `Tools` → `PaperView: Set Service URL`
+2. Drag `paperview-query.xpi` into Zotero’s Add-ons manager and restart
+3. Set the service URL in Zotero: `Tools` → `PaperView: Set Service URL`
    Example: `http://127.0.0.1:20341`
-5. Right-click items in Zotero and choose `Query`
+4. Set API Key: `Tools` → `PaperView: Set API Key`
+5. Start service: `Tools` → `PaperView: Start Service`
+6. Right-click items in Zotero and choose `Query`
 
 **Query Input Format**
 - Direct question (defaults to full text):
@@ -159,11 +161,17 @@ Output: `store/zotero/ocr/papers.pages.jsonl`
 **Configuration**
 - Service URL: `Tools` → `PaperView: Set Service URL`
 - Service port: `local_service.py --port <PORT>` (default 20341)
+
 **API Key (recommended via plugin)**
 - Zotero menu: `Tools` → `PaperView: Set API Key`
+
 **LLM Config (file + menu)**
 - Zotero menu: `Tools` → `PaperView: LLM Settings`
 - Config file: `<ZoteroProfile>/paperview/llm_config.json`
+
+**Supported API Style**
+- OpenAI-compatible Chat Completions (`/chat/completions`)
+
 **Plugin Logs (Profile directory)**
 - Service output: `<ZoteroProfile>/paperview/logs/service.log`
 - Env setup: `<ZoteroProfile>/paperview/logs/env-install.log`
