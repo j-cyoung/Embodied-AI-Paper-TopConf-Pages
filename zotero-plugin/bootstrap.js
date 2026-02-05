@@ -1,10 +1,54 @@
-/* global Zotero */
+/* global Zotero, Cc, Ci, Services */
 
 var pluginID = null;
 var SERVICE_BASE_URL = "http://127.0.0.1:20341";
 var LAST_QUERY_SECTIONS = "full_text";
 var PREF_SERVICE_URL = "extensions.paperview.service_base_url";
 var cleanupHandlers = [];
+var chromeHandle = null;
+const PAPER_VIEW_ICON_FALLBACK_URL =
+  "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/zotero.svg";
+var addonRootURI = null;
+var paperViewIconURL = null;
+const MENU_LABELS = {
+  query: "PaperView: Query",
+  concat: "PaperView: Concat Query",
+  ocr: "PaperView: OCR Cache",
+  history: "PaperView: Query History",
+  settings: "PaperView: Set Service URL"
+};
+function getPaperViewIconURL() {
+  if (paperViewIconURL) return paperViewIconURL;
+  if (addonRootURI) {
+    try {
+      const localURL = `${addonRootURI}skin/paperview.svg`;
+      const svg = Zotero.File.getContentsFromURL(localURL);
+      if (svg) {
+        paperViewIconURL =
+          "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+        return paperViewIconURL;
+      }
+    } catch (err) {
+      Zotero.debug(`[PaperView] load local icon failed: ${err}`);
+    }
+  }
+  paperViewIconURL = PAPER_VIEW_ICON_FALLBACK_URL;
+  return paperViewIconURL;
+}
+
+function applyMenuIcon(menuitem) {
+  if (!menuitem) return;
+  const iconURL = getPaperViewIconURL();
+  if (!iconURL) return;
+  if (menuitem.classList) {
+    menuitem.classList.add("menuitem-iconic");
+  } else {
+    const existing = menuitem.getAttribute("class") || "";
+    menuitem.setAttribute("class", `${existing} menuitem-iconic`.trim());
+  }
+  menuitem.setAttribute("image", iconURL);
+  menuitem.style.listStyleImage = `url("${iconURL}")`;
+}
 
 function getServiceBaseUrl() {
   try {
@@ -192,7 +236,7 @@ async function showQueryProgress(jobId, resultUrl) {
   const win = Zotero.getMainWindow();
   const pw = new Zotero.ProgressWindow({ closeOnClick: false });
   pw.changeHeadline("PaperView 查询中");
-  const icon = `chrome://zotero/skin/treesource-unfiled${Zotero.hiDPI ? "@2x" : ""}.png`;
+  const icon = getPaperViewIconURL();
   const progress = new pw.ItemProgress(icon, "准备中...");
   progress.setProgress(0);
   pw.show();
@@ -246,7 +290,7 @@ async function showOcrProgress(jobId) {
   const win = Zotero.getMainWindow();
   const pw = new Zotero.ProgressWindow({ closeOnClick: false });
   pw.changeHeadline("PaperView OCR 中");
-  const icon = `chrome://zotero/skin/treesource-unfiled${Zotero.hiDPI ? "@2x" : ""}.png`;
+  const icon = getPaperViewIconURL();
   const progress = new pw.ItemProgress(icon, "准备中...");
   progress.setProgress(0);
   pw.show();
@@ -306,7 +350,8 @@ function attachMenuToWindow(win) {
         ? doc.createXULElement("menuitem")
         : doc.createElement("menuitem");
       menuitem.setAttribute("id", "paperview-query-menuitem");
-      menuitem.setAttribute("label", "Query");
+      menuitem.setAttribute("label", MENU_LABELS.query);
+      applyMenuIcon(menuitem);
 
       const onCommand = async () => {
         try {
@@ -360,7 +405,8 @@ function attachMenuToWindow(win) {
         ? doc.createXULElement("menuitem")
         : doc.createElement("menuitem");
       concatItem.setAttribute("id", "paperview-concat-query-menuitem");
-      concatItem.setAttribute("label", "Concat Query");
+      concatItem.setAttribute("label", MENU_LABELS.concat);
+      applyMenuIcon(concatItem);
 
       const onConcatCommand = async () => {
         try {
@@ -404,7 +450,8 @@ function attachMenuToWindow(win) {
         ? doc.createXULElement("menuitem")
         : doc.createElement("menuitem");
       ocrItem.setAttribute("id", "paperview-ocr-menuitem");
-      ocrItem.setAttribute("label", "OCR Cache");
+      ocrItem.setAttribute("label", MENU_LABELS.ocr);
+      applyMenuIcon(ocrItem);
 
       const onOcrCommand = async () => {
         try {
@@ -447,7 +494,8 @@ function attachMenuToWindow(win) {
         ? doc.createXULElement("menuitem")
         : doc.createElement("menuitem");
       historyItem.setAttribute("id", "paperview-query-history-menuitem");
-      historyItem.setAttribute("label", "Query History");
+      historyItem.setAttribute("label", MENU_LABELS.history);
+      applyMenuIcon(historyItem);
 
       const onHistoryCommand = () => {
         try {
@@ -484,7 +532,8 @@ function attachToolsMenuToWindow(win) {
         ? doc.createXULElement("menuitem")
         : doc.createElement("menuitem");
       settingsItem.setAttribute("id", "paperview-tools-settings");
-      settingsItem.setAttribute("label", "PaperView: Set Service URL");
+      settingsItem.setAttribute("label", MENU_LABELS.settings);
+      applyMenuIcon(settingsItem);
       const onSettings = () => {
         try {
           const current = getServiceBaseUrl();
@@ -520,8 +569,36 @@ function initMenus() {
   }
 }
 
-function startup({ id }) {
+function ensureChrome(rootURI) {
+  if (chromeHandle || !rootURI) return;
+  try {
+    const aomStartup = Cc["@mozilla.org/addons/addon-manager-startup;1"].getService(
+      Ci.amIAddonManagerStartup
+    );
+    let manifestURI = null;
+    if (Services && Services.io && typeof Services.io.newURI === "function") {
+      manifestURI = Services.io.newURI(`${rootURI}manifest.json`);
+    } else {
+      const ioService = Cc["@mozilla.org/network/io-service;1"].getService(
+        Ci.nsIIOService
+      );
+      manifestURI = ioService.newURI(`${rootURI}manifest.json`);
+    }
+    chromeHandle = aomStartup.registerChrome(manifestURI, [
+      ["skin", "paperview-query", "classic/1.0", "skin/"],
+      ["locale", "paperview-query", "en-US", "locale/en-US/"]
+    ]);
+  } catch (err) {
+    Zotero.debug(`[PaperView] registerChrome failed: ${err}`);
+  }
+}
+
+function startup({ id, resourceURI, rootURI }) {
   pluginID = id;
+  const resolvedRoot =
+    rootURI || (resourceURI && resourceURI.spec) || null;
+  addonRootURI = resolvedRoot;
+  ensureChrome(resolvedRoot);
   Zotero.debug(`[PaperView] service_base_url=${getServiceBaseUrl()}`);
   initMenus();
 }
@@ -535,6 +612,14 @@ function shutdown() {
     }
   }
   cleanupHandlers = [];
+  if (chromeHandle) {
+    try {
+      chromeHandle.destruct();
+    } catch (err) {
+      // ignore
+    }
+    chromeHandle = null;
+  }
 }
 
 function install() {}
