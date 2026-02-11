@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.0 - 2026-02-11
+
+**Changed**
+- Promoted the current stable PaperView configuration/runtime improvements and diagnostics into a `v0.4.0` release baseline.
+
 ## v0.3.8 - 2026-02-11
 
 **Changed**
