@@ -6,12 +6,16 @@
 PaperView 是一个面向论文检索与批处理的本地流水线项目，集成 Zotero 插件用于选中文献发起查询，并在本地服务中完成 OCR、LLM 查询与结果可视化。
 
 **功能概览**
-- Zotero 右键菜单 `Query` 发起查询
+- Zotero 右键菜单 `Query` / `Concat Query` / `OCR Cache`
 - 可选查询章节（如 `abstract`、`introduction`、`methods`）
 - 不指定章节时默认查询全文（`full_text`）
+- 右键操作会自动启动后台服务（若当前未运行）
+- 查询输入支持多行文本（换行保留）
 - 进度条展示查询状态
-- 结果页面支持历史查询切换
+- 结果页面支持 Markdown 渲染/原文切换
+- 结果页面支持历史查询切换、删除单条、清空历史
 - OCR 缓存与增量更新（复用已生成结果）
+- OCR 默认并行执行，支持配置并发度
 
 **环境要求**
 - macOS
@@ -28,10 +32,11 @@ PaperView 是一个面向论文检索与批处理的本地流水线项目，集�
 3. 设置服务地址：Zotero 顶部菜单 `Tools` → `PaperView: Set Service URL`
    例如：`http://127.0.0.1:20341`
 4. 设置 API Key：`Tools` → `PaperView: Set API Key`
-5. 启动服务：`Tools` → `PaperView: Start Service`
-6. 在 Zotero 文献列表中右键选择 `Query` 发起查询
+5. （可选）手动启动服务：`Tools` → `PaperView: Start Service`
+6. 在 Zotero 文献列表中右键选择 `Query` / `OCR Cache` 发起任务（若服务未启动会自动拉起）
 
 **查询输入格式**
+- 支持多行输入（可直接换行，`Ctrl/Cmd + Enter` 提交）
 - 直接输入问题（默认全文）：
   `请总结方法`
 - 指定章节：
@@ -62,6 +67,8 @@ PaperView 是一个面向论文检索与批处理的本地流水线项目，集�
 **结果可视化**
 - 查询完成后自动打开 `http://127.0.0.1:20341/result/<job_id>`
 - 历史查询页面：`http://127.0.0.1:20341/query_view.html`
+- 回答支持 Markdown 渲染/原文切换查看
+- 历史支持删除当前记录与清空全部记录
 
 **配置项**
 - 服务地址：`Tools` → `PaperView: Set Service URL`
@@ -73,6 +80,7 @@ PaperView 是一个面向论文检索与批处理的本地流水线项目，集�
 **LLM 配置（文件 + 菜单）**
 - Zotero 菜单：`Tools` → `PaperView: LLM Settings`
 - 配置文件：`<ZoteroProfile>/paperview/llm_config.json`
+- 可配置 `ocr_concurrency`（OCR 并发度，默认 `4`）
 
 **支持的 API 风格**
 - OpenAI-compatible Chat Completions（`/chat/completions`）
@@ -86,6 +94,7 @@ PaperView 是一个面向论文检索与批处理的本地流水线项目，集�
 - 端口被占用：`lsof -nP -iTCP:20341 -sTCP:LISTEN` 后 `kill <PID>`
 - 浏览器未自动打开：检查服务是否运行、端口是否一致
 - 查询进度不更新：确认 `local_service.py` 与 `query_papers.py` 已更新
+- OCR 看起来变慢：检查 `service.log` 是否出现 `switch force-serial mode`（并发错误触发后会降级串行）
 
 **许可证**
 - MIT License（见 `LICENSE`）
@@ -101,12 +110,16 @@ PaperView 是一个面向论文检索与批处理的本地流水线项目，集�
 PaperView is a local pipeline for paper retrieval and batch analysis. It integrates a Zotero plugin to trigger queries, runs OCR and LLM querying in a local service, and visualizes results in a web page.
 
 **Key Features**
-- Zotero context menu `Query`
+- Zotero context menu `Query` / `Concat Query` / `OCR Cache`
 - Optional section targeting (`abstract`, `introduction`, `methods`)
 - Defaults to full text (`full_text`) when no section is specified
+- Right-click actions auto-start backend service when needed
+- Multi-line query input support
 - Progress window during query
-- History page to switch between past queries
+- Result page supports Markdown rendered/raw toggle
+- History page supports switch/delete/clear
 - OCR caching with incremental updates
+- OCR runs in parallel by default with configurable concurrency
 
 **Requirements**
 - macOS
@@ -123,10 +136,11 @@ PaperView is a local pipeline for paper retrieval and batch analysis. It integra
 3. Set the service URL in Zotero: `Tools` → `PaperView: Set Service URL`
    Example: `http://127.0.0.1:20341`
 4. Set API Key: `Tools` → `PaperView: Set API Key`
-5. Start service: `Tools` → `PaperView: Start Service`
-6. Right-click items in Zotero and choose `Query`
+5. (Optional) Start service manually: `Tools` → `PaperView: Start Service`
+6. Right-click items and run `Query` / `OCR Cache` (service auto-starts if not running)
 
 **Query Input Format**
+- Multi-line input is supported (`Ctrl/Cmd + Enter` to submit)
 - Direct question (defaults to full text):
   `Summarize the method`
 - With section prefix:
@@ -157,6 +171,8 @@ Output: `store/zotero/ocr/papers.pages.jsonl`
 **Visualization**
 - Result page: `http://127.0.0.1:20341/result/<job_id>`
 - History page: `http://127.0.0.1:20341/query_view.html`
+- Markdown rendered/raw toggle for responses
+- Delete one history record or clear all history from the history panel
 
 **Configuration**
 - Service URL: `Tools` → `PaperView: Set Service URL`
@@ -168,6 +184,7 @@ Output: `store/zotero/ocr/papers.pages.jsonl`
 **LLM Config (file + menu)**
 - Zotero menu: `Tools` → `PaperView: LLM Settings`
 - Config file: `<ZoteroProfile>/paperview/llm_config.json`
+- `ocr_concurrency` controls OCR worker parallelism (default `4`)
 
 **Supported API Style**
 - OpenAI-compatible Chat Completions (`/chat/completions`)
@@ -181,6 +198,7 @@ Output: `store/zotero/ocr/papers.pages.jsonl`
 - Port in use: `lsof -nP -iTCP:20341 -sTCP:LISTEN` then `kill <PID>`
 - Browser not opening: verify service is running and URL matches
 - Progress not updating: ensure `local_service.py` and `query_papers.py` are updated
+- OCR looks slow: check `service.log` for `switch force-serial mode` (parallel failures can trigger serial fallback)
 
 **License**
 - MIT License (see `LICENSE`)

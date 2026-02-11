@@ -3,10 +3,11 @@
 ## 中文
 
 **Demo 行为**
-- 在 Zotero 文献列表右键菜单增加 `Query`
+- 在 Zotero 文献列表右键菜单增加 `Query` / `Concat Query` / `OCR Cache` / `Query History`
 - 向本地服务 `/ingest` 发送元信息与 PDF 路径（仅存储型附件）
 - 调用 `/query` 并打开返回的 `result_url`
 - 查询过程中显示进度条（轮询 `/status/<job_id>`）
+- 右键操作会自动探活并启动本地服务（若服务未运行）
 
 **安装（打包成 .xpi）**
 1. 在仓库根目录执行：
@@ -23,6 +24,7 @@
 - Zotero 顶部菜单：`Tools` → `PaperView: Start Service` / `PaperView: Stop Service`
 - 插件加载时会自动准备 Python 环境（首次可能较慢）
 - Zotero 退出时会自动停止服务
+- 右键执行 Query/OCR/History 时，若服务未启动会自动拉起
 
 **Python 环境位置**
 - venv 路径：`<ZoteroProfile>/paperview/venv`
@@ -66,6 +68,11 @@ Zotero 顶部菜单：`Tools` → `PaperView: Set Service URL`
 **查询输入格式**
 - 默认全文：`请总结方法`
 - 指定章节：`[method] 总结方法`
+- 支持多行输入（`Ctrl/Cmd + Enter` 提交，`Esc` 取消）
+
+**结果页增强**
+- 回答支持 Markdown 渲染/原文切换
+- 历史查询支持删除当前记录与清空全部记录
 
 ---
 
