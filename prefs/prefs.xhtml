@@ -1,0 +1,111 @@
+<vbox
+  id="paperview-pref-root"
+  onload="if (Zotero.PaperViewPrefsPane) Zotero.PaperViewPrefsPane.init(window);"
+  xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+  xmlns:html="http://www.w3.org/1999/xhtml"
+>
+  <groupbox>
+    <label value="PaperView Settings" style="font-weight: bold; margin-bottom: 6px;" />
+    <description style="margin-bottom: 8px;">
+      Explicit settings pane. Defaults are filled automatically on load.
+    </description>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="Service Base URL" style="width: 180px;" />
+      <html:input
+        id="paperview-service-url"
+        style="min-width: 420px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;"
+      />
+    </hbox>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="API Key" style="width: 180px;" />
+      <html:input
+        id="paperview-api-key"
+        type="password"
+        style="min-width: 420px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;"
+      />
+    </hbox>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="LLM Base URL" style="width: 180px;" />
+      <html:input
+        id="paperview-llm-base-url"
+        style="min-width: 420px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;"
+      />
+    </hbox>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="Model" style="width: 180px;" />
+      <html:input
+        id="paperview-llm-model"
+        style="min-width: 420px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;"
+      />
+    </hbox>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="OCR Concurrency" style="width: 180px;" />
+      <html:input
+        id="paperview-llm-ocr-concurrency"
+        type="number"
+        min="1"
+        step="1"
+        style="min-width: 420px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;"
+      />
+    </hbox>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="Temperature" style="width: 180px;" />
+      <html:input
+        id="paperview-llm-temperature"
+        type="number"
+        step="0.1"
+        style="min-width: 420px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;"
+      />
+    </hbox>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="Max Output Tokens" style="width: 180px;" />
+      <html:input
+        id="paperview-llm-max-output-tokens"
+        type="number"
+        min="1"
+        step="1"
+        style="min-width: 420px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;"
+      />
+    </hbox>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="Query Concurrency" style="width: 180px;" />
+      <html:input
+        id="paperview-llm-concurrency"
+        type="number"
+        min="1"
+        step="1"
+        style="min-width: 420px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;"
+      />
+    </hbox>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="Retry Wait (s)" style="width: 180px;" />
+      <html:input
+        id="paperview-llm-retry-wait"
+        type="number"
+        min="0"
+        step="1"
+        style="min-width: 420px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px;"
+      />
+    </hbox>
+
+    <hbox align="center" style="margin-bottom: 6px;">
+      <label value="Retry on 429" style="width: 180px;" />
+      <checkbox id="paperview-llm-retry-on-429" />
+    </hbox>
+
+    <hbox align="center" style="margin-top: 8px;">
+      <button id="paperview-pref-save" label="Save" />
+      <button id="paperview-pref-reset" label="Reset Defaults" />
+      <label id="paperview-pref-status" value="" style="margin-left: 8px; color: #475569;" />
+    </hbox>
+  </groupbox>
+</vbox>

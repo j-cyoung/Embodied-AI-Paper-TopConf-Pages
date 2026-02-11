@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "PaperView Query",
-  "version": "0.2.0",
+  "version": "0.3.8",
   "description": "PaperView Zotero plugin with built-in service and LLM config",
   "icons": {
     "16": "skin/paperview.svg",

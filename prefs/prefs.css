@@ -1,0 +1,60 @@
+#paperview-pref-root {
+  padding: 12px;
+  max-width: 760px;
+}
+
+#paperview-pref-root h2 {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+}
+
+#paperview-pref-root h3 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+}
+
+.paperview-pref-note {
+  margin: 0 0 14px;
+  color: #475569;
+}
+
+.paperview-pref-section {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0 0 16px;
+  padding: 12px;
+  border: 1px solid #dbe2ea;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.paperview-pref-section input[type="text"],
+.paperview-pref-section input[type="password"],
+.paperview-pref-section input[type="number"] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.paperview-pref-checkbox {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.paperview-pref-actions {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.paperview-pref-status {
+  min-height: 1.2em;
+  margin: 0;
+  color: #0f5132;
+}
+
+.paperview-pref-status.error {
+  color: #842029;
+}

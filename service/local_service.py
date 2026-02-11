@@ -119,6 +119,15 @@ class DemoHandler(BaseHTTPRequestHandler):
                 return n
         return default
 
+    def _pick_non_empty_str(self, *values, default=""):
+        for val in values:
+            if val is None:
+                continue
+            text = str(val).strip()
+            if text:
+                return text
+        return default
+
     def _load_runtime_config(self):
         config_path = LLM_CONFIG_PATH or os.environ.get("PAPERVIEW_LLM_CONFIG", "")
         if not config_path:
@@ -137,6 +146,17 @@ class DemoHandler(BaseHTTPRequestHandler):
             cfg.get("concurrency"),
             os.environ.get("PAPERVIEW_OCR_CONCURRENCY"),
             default=DEFAULT_OCR_CONCURRENCY,
+        )
+
+    def _resolve_api_key(self, payload=None):
+        cfg = self._load_runtime_config()
+        req = payload if isinstance(payload, dict) else {}
+        return self._pick_non_empty_str(
+            req.get("api_key"),
+            cfg.get("api_key"),
+            os.environ.get("SILICONFLOW_API_KEY"),
+            os.environ.get("OPENAI_API_KEY"),
+            default="",
         )
 
     def _row_item_key(self, row):
@@ -525,6 +545,12 @@ class DemoHandler(BaseHTTPRequestHandler):
         if not selected:
             raise ValueError("no matching items in items.jsonl")
 
+        api_key = self._resolve_api_key(payload)
+        if not api_key:
+            raise ValueError(
+                "missing API key (set PaperView API Key in Settings, then Save)"
+            )
+
         self._write_status(job_dir, "prepare", 0, len(selected))
         self._write_query_snapshot(job_dir, payload, selected)
 
@@ -586,6 +612,8 @@ class DemoHandler(BaseHTTPRequestHandler):
             cmd += ["--config", LLM_CONFIG_PATH]
         env = os.environ.copy()
         env.setdefault("PYTHONUNBUFFERED", "1")
+        env["SILICONFLOW_API_KEY"] = api_key
+        env["OPENAI_API_KEY"] = api_key
         proc = subprocess.Popen(cmd, cwd=self._base_dir(), env=env)
         while proc.poll() is None:
             done = 0

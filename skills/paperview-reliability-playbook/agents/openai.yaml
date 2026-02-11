@@ -1,0 +1,3 @@
+interface:
+  display_name: "PaperView Reliability Playbook"
+  short_description: "Stabilize PaperView startup, menus, and settings pane behavior"

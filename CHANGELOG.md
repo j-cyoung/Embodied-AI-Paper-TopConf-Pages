@@ -2,6 +2,59 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.3.8 - 2026-02-11
+
+**Changed**
+- Query runtime now synchronizes PaperView settings to runtime config/environment right before execution, reducing stale config issues.
+- Ingest summary logging now reports service-native fields (`written`/`received`) to avoid misleading `ingested_keys=0` diagnostics.
+
+**Fixed**
+- Local query pipeline now resolves API key from request/config/environment consistently and injects it into query subprocess runtime.
+- Query failure dialogs now use a reliable prompt path and show concrete error messages instead of blank/ambiguous alerts.
+
+**Added**
+- Runtime config tests for API key resolution priority and environment fallback behavior.
+
+## v0.3.7 - 2026-02-11
+
+**Changed**
+- Expanded the explicit PaperView settings pane from a minimal subset to full runtime configuration coverage, including temperature, max output tokens, query concurrency, retry wait, and retry-on-429.
+- Updated pane state normalization and persistence so all supported settings are validated and written consistently to Zotero prefs and `llm_config.json`.
+
+**Added**
+- UI contract tests for the preferences pane structure and explicit onload controller hook.
+- Runtime configuration resolution tests for OCR concurrency fallback precedence.
+- Project skill `paperview-reliability-playbook` documenting proven fixes for right-click menu initialization and settings default rendering issues.
+
+## v0.3.6 - 2026-02-11
+
+**Changed**
+- Replaced the PaperView preferences pane with a minimal explicit form (`Service Base URL`, `API Key`, `LLM Base URL`, `Model`, `OCR Concurrency`) plus `Save` and `Reset Defaults`.
+- Preferences pane initialization now follows an explicit `onload` controller pattern (`Zotero.PaperViewPrefsPane.init(window)`), similar to Better BibTeX style, instead of relying on implicit field binding.
+
+**Fixed**
+- Defaults are now rendered directly into input fields by pane controller code and persisted immediately, avoiding blank-field behavior caused by binding timing/type inconsistencies.
+
+## v0.3.5 - 2026-02-11
+
+**Fixed**
+- Preferences pane now explicitly loads and normalizes all field values via `prefs/prefs.js`, ensuring default values are visible even when Zotero preference binding leaves inputs blank.
+- Preference fields now auto-correct empty/invalid values on pane load and on edit, then persist sanitized values back to Zotero prefs.
+
+## v0.3.4 - 2026-02-11
+
+**Fixed**
+- Default settings seeding now treats empty/invalid preference values as missing and rewrites them with safe defaults, so the Settings panel shows prefilled values consistently.
+- LLM config normalization now enforces positive `max_output_tokens` and non-negative `retry_wait_s`, avoiding empty numeric fields caused by invalid zero values.
+- Added detailed startup logs listing which preference keys were seeded, to simplify preference initialization debugging.
+
+## v0.3.3 - 2026-02-11
+
+**Fixed**
+- Settings pane now auto-seeds default PaperView runtime preferences when values are missing or invalid, so fields are prefilled on first use.
+- Default preference seeding now runs both at plugin startup and on main window load to avoid timing-related initialization misses.
+- Preferences pane XML label escaping fixed to prevent settings page load failures.
+
 ## v0.3.1 - 2026-02-11
 
 **Added**

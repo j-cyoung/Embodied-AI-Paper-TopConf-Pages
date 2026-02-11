@@ -8,6 +8,8 @@ package_items=(
   "bootstrap.js"
   "chrome.manifest"
   "locale"
+  "modules"
+  "prefs"
   "skin"
   "service"
 )
