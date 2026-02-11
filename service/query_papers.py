@@ -824,6 +824,27 @@ def main() -> None:
     
     rate_state = RateLimitController(args.concurrency, args.retry_wait_s)
 
+    def generate_with_rate_limit(prompt: str) -> LLMResponse:
+        while True:
+            rate_state.acquire()
+            try:
+                resp = provider.generate(
+                    prompt=prompt,
+                    system=args.system_prompt if args.system_prompt else None,
+                    temperature=args.temperature,
+                    max_output_tokens=args.max_output_tokens,
+                )
+                rate_state.on_success()
+                return resp
+            except requests.HTTPError as e:
+                status = getattr(e.response, "status_code", None)
+                if status == 429 and args.retry_on_429:
+                    rate_state.on_rate_limit()
+                    continue
+                raise
+            finally:
+                rate_state.release()
+
     def build_paper_payload(
         paper: Dict[str, Any],
         section_names: List[str],
@@ -894,28 +915,7 @@ def main() -> None:
             )
             
             # 调用LLM
-            retries = 0
-            
-            while True:
-                rate_state.acquire()
-                try:
-                    resp = provider.generate(
-                        prompt=prompt,
-                        system=args.system_prompt if args.system_prompt else None,
-                        temperature=args.temperature,
-                        max_output_tokens=args.max_output_tokens,
-                    )
-                    rate_state.on_success()
-                    break
-                except requests.HTTPError as e:
-                    status = getattr(e.response, "status_code", None)
-                    if status == 429 and args.retry_on_429:
-                        retries += 1
-                        rate_state.on_rate_limit()
-                        continue
-                    raise
-                finally:
-                    rate_state.release()
+            resp = generate_with_rate_limit(prompt)
             
             elapsed_ms = int((time.time() - start_ts) * 1000)
             
@@ -1001,25 +1001,7 @@ def main() -> None:
                 papers=prompt_papers,
             )
 
-            while True:
-                rate_state.acquire()
-                try:
-                    resp = provider.generate(
-                        prompt=prompt,
-                        system=args.system_prompt if args.system_prompt else None,
-                        temperature=args.temperature,
-                        max_output_tokens=args.max_output_tokens,
-                    )
-                    rate_state.on_success()
-                    break
-                except requests.HTTPError as e:
-                    status = getattr(e.response, "status_code", None)
-                    if status == 429 and args.retry_on_429:
-                        rate_state.on_rate_limit()
-                        continue
-                    raise
-                finally:
-                    rate_state.release()
+            resp = generate_with_rate_limit(prompt)
 
             elapsed_ms = int((time.time() - start_ts) * 1000)
             out["query_status"] = "ok"
@@ -1047,13 +1029,14 @@ def main() -> None:
     else:
         results: List[Dict[str, Any]] = [None] * len(papers)
         write_progress(0, len(papers))
+        completed_count = 0
         with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
             futures = [ex.submit(process_one, i, paper) for i, paper in enumerate(papers)]
             for fut in tqdm(as_completed(futures), total=len(futures), desc="查询论文", unit="篇"):
                 res = fut.result()
                 results[res["idx"]] = res["data"]
-                done = sum(1 for r in results if r is not None)
-                write_progress(done, len(papers))
+                completed_count += 1
+                write_progress(completed_count, len(papers))
         write_progress(len(papers), len(papers))
     
     # 保存结果

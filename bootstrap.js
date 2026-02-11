@@ -2,7 +2,6 @@
 
 var pluginID = null;
 var SERVICE_BASE_URL = "http://127.0.0.1:20341";
-var LAST_QUERY_SECTIONS = "full_text";
 var PREF_SERVICE_URL = "extensions.paperview.service_base_url";
 var PREF_API_KEY = "extensions.paperview.api_key";
 var PREF_LLM_CONFIG = "extensions.paperview.llm_config";
@@ -516,7 +515,13 @@ async function ensureEnvReady() {
       throw err;
     }
   })();
-  return serviceEnvPromise;
+  try {
+    return await serviceEnvPromise;
+  } catch (err) {
+    // Allow a later retry after a failed init.
+    serviceEnvPromise = null;
+    throw err;
+  }
 }
 
 async function startService() {
@@ -890,6 +895,11 @@ async function promptQueryText() {
   }
 }
 
+function parseJsonResponse(resp) {
+  const text = resp.responseText || resp.response || "";
+  return text ? JSON.parse(text) : {};
+}
+
 async function ingestItems(items) {
   const baseUrl = getServiceBaseUrl();
   const payload = {
@@ -903,8 +913,7 @@ async function ingestItems(items) {
     body: JSON.stringify(payload),
     headers: { "Content-Type": "application/json" }
   });
-  const text = resp.responseText || resp.response || "";
-  return JSON.parse(text);
+  return parseJsonResponse(resp);
 }
 
 async function queryService(itemKeys, queryText, sectionsText, queryMode) {
@@ -919,8 +928,7 @@ async function queryService(itemKeys, queryText, sectionsText, queryMode) {
     body: JSON.stringify(payload),
     headers: { "Content-Type": "application/json" }
   });
-  const text = resp.responseText || resp.response || "";
-  const data = JSON.parse(text);
+  const data = parseJsonResponse(resp);
   if (!data || !data.result_url) {
     throw new Error("Missing result_url in response");
   }
@@ -938,127 +946,130 @@ async function ocrService(itemKeys) {
     body: JSON.stringify(payload),
     headers: { "Content-Type": "application/json" }
   });
-  const text = resp.responseText || resp.response || "";
-  return JSON.parse(text);
+  return parseJsonResponse(resp);
+}
+
+async function runQueryForSelectedItems(queryMode) {
+  await ensureServiceReady();
+  const pane = Zotero.getActiveZoteroPane();
+  const items = pane && typeof pane.getSelectedItems === "function"
+    ? pane.getSelectedItems()
+    : [];
+  if (!items || items.length === 0) return;
+
+  const keys = items.map((item) => item.key);
+  const modeText = queryMode === "merge" ? "concat" : "query";
+  Zotero.debug(
+    `[PaperView] Selected ${keys.length} item(s) for ${modeText}: ${keys.join(", ")}`
+  );
+  const rawQuery = await promptQueryText();
+  if (!rawQuery) {
+    Zotero.debug(`[PaperView] ${modeText} cancelled`);
+    return;
+  }
+
+  const ingest = await ingestItems(items);
+  Zotero.debug(`[PaperView] Ingested: ${JSON.stringify(ingest)}`);
+  const result = await queryService(keys, rawQuery, "", queryMode);
+  if (result && result.job_id && result.result_url) {
+    await showQueryProgress(result.job_id, result.result_url);
+  } else if (result && result.result_url) {
+    Zotero.launchURL(result.result_url);
+  }
+}
+
+// Shared job polling UI for query/ocr tasks.
+async function showJobProgress(jobId, options) {
+  const opts = options || {};
+  const baseUrl = getServiceBaseUrl();
+  const win = Zotero.getMainWindow();
+  if (!win) return;
+
+  const pw = new Zotero.ProgressWindow({ closeOnClick: false });
+  pw.changeHeadline(opts.headline || "PaperView 处理中");
+  const icon = getPaperViewIconURL();
+  const progress = new pw.ItemProgress(icon, "准备中...");
+  progress.setProgress(0);
+  pw.show();
+
+  let stopped = false;
+  let timer = null;
+  const stopPolling = () => {
+    if (stopped) return;
+    stopped = true;
+    if (timer !== null) {
+      win.clearInterval(timer);
+      timer = null;
+    }
+  };
+
+  const update = async () => {
+    if (stopped) return;
+    try {
+      const resp = await Zotero.HTTP.request("GET", `${baseUrl}/status/${jobId}`, {
+        headers: { "Content-Type": "application/json" }
+      });
+      const data = parseJsonResponse(resp);
+      const stage = data.stage || opts.defaultStage || "job";
+      const done = Number(data.done || 0);
+      const total = Number(data.total || 0);
+      const msg = data.message ? ` ${data.message}` : "";
+      let percent = 0;
+      if (total > 0) {
+        percent = Math.min(100, Math.round((done * 100) / total));
+      } else if (stage === "done") {
+        percent = 100;
+      }
+      progress.setProgress(percent);
+      progress.setText(`${stage} ${total > 0 ? `${done}/${total}` : ""}${msg}`.trim());
+
+      if (stage === "done") {
+        stopPolling();
+        progress.setProgress(100);
+        progress.setText("完成");
+        pw.close();
+        if (typeof opts.onDone === "function") {
+          await opts.onDone();
+        }
+        return;
+      }
+      if (stage === "error") {
+        stopPolling();
+        progress.setProgress(100);
+        progress.setText(`失败${msg}`);
+        try {
+          pw.close();
+          win.alert("PaperView", `${opts.errorPrefix || "任务失败"}${msg}`.trim());
+        } catch (err) {
+          // ignore
+        }
+      }
+    } catch (err) {
+      progress.setText("等待服务响应...");
+    }
+  };
+
+  timer = win.setInterval(() => {
+    void update();
+  }, 1000);
+  void update();
 }
 
 async function showQueryProgress(jobId, resultUrl) {
-  const baseUrl = getServiceBaseUrl();
-  const win = Zotero.getMainWindow();
-  const pw = new Zotero.ProgressWindow({ closeOnClick: false });
-  pw.changeHeadline("PaperView 查询中");
-  const icon = getPaperViewIconURL();
-  const progress = new pw.ItemProgress(icon, "准备中...");
-  progress.setProgress(0);
-  pw.show();
-
-  let stopped = false;
-  const update = async () => {
-    if (stopped) return;
-    try {
-      const resp = await Zotero.HTTP.request("GET", `${baseUrl}/status/${jobId}`, {
-        headers: { "Content-Type": "application/json" }
-      });
-      const text = resp.responseText || resp.response || "";
-      const data = JSON.parse(text);
-      const stage = data.stage || "query";
-      const done = Number(data.done || 0);
-      const total = Number(data.total || 0);
-      const msg = data.message ? ` ${data.message}` : "";
-      let percent = 0;
-      if (total > 0) {
-        percent = Math.min(100, Math.round((done * 100) / total));
-      } else if (stage === "done") {
-        percent = 100;
-      }
-      progress.setProgress(percent);
-      progress.setText(`${stage} ${total > 0 ? `${done}/${total}` : ""}${msg}`.trim());
-      if (stage === "done") {
-        progress.setProgress(100);
-        progress.setText("完成");
-        stopped = true;
-        win.clearInterval(timer);
-        pw.close();
-        Zotero.launchURL(resultUrl);
-      }
-      if (stage === "error") {
-        progress.setProgress(100);
-        progress.setText(`失败${msg}`);
-        stopped = true;
-        win.clearInterval(timer);
-        try {
-          pw.close();
-          win.alert("PaperView", `查询失败${msg}`.trim());
-        } catch (err) {
-          // ignore
-        }
-      }
-    } catch (err) {
-      progress.setText("等待服务响应...");
-    }
-  };
-
-  const timer = win.setInterval(update, 1000);
-  update();
+  return showJobProgress(jobId, {
+    headline: "PaperView 查询中",
+    defaultStage: "query",
+    errorPrefix: "查询失败",
+    onDone: () => Zotero.launchURL(resultUrl)
+  });
 }
 
 async function showOcrProgress(jobId) {
-  const baseUrl = getServiceBaseUrl();
-  const win = Zotero.getMainWindow();
-  const pw = new Zotero.ProgressWindow({ closeOnClick: false });
-  pw.changeHeadline("PaperView OCR 中");
-  const icon = getPaperViewIconURL();
-  const progress = new pw.ItemProgress(icon, "准备中...");
-  progress.setProgress(0);
-  pw.show();
-
-  let stopped = false;
-  const update = async () => {
-    if (stopped) return;
-    try {
-      const resp = await Zotero.HTTP.request("GET", `${baseUrl}/status/${jobId}`, {
-        headers: { "Content-Type": "application/json" }
-      });
-      const text = resp.responseText || resp.response || "";
-      const data = JSON.parse(text);
-      const stage = data.stage || "ocr";
-      const done = Number(data.done || 0);
-      const total = Number(data.total || 0);
-      const msg = data.message ? ` ${data.message}` : "";
-      let percent = 0;
-      if (total > 0) {
-        percent = Math.min(100, Math.round((done * 100) / total));
-      } else if (stage === "done") {
-        percent = 100;
-      }
-      progress.setProgress(percent);
-      progress.setText(`${stage} ${total > 0 ? `${done}/${total}` : ""}${msg}`.trim());
-      if (stage === "done") {
-        progress.setProgress(100);
-        progress.setText("完成");
-        stopped = true;
-        win.clearInterval(timer);
-        pw.close();
-      }
-      if (stage === "error") {
-        progress.setProgress(100);
-        progress.setText(`失败${msg}`);
-        stopped = true;
-        win.clearInterval(timer);
-        try {
-          pw.close();
-          win.alert("PaperView", `OCR 失败${msg}`.trim());
-        } catch (err) {
-          // ignore
-        }
-      }
-    } catch (err) {
-      progress.setText("等待服务响应...");
-    }
-  };
-
-  const timer = win.setInterval(update, 1000);
-  update();
+  return showJobProgress(jobId, {
+    headline: "PaperView OCR 中",
+    defaultStage: "ocr",
+    errorPrefix: "OCR 失败"
+  });
 }
 
 function attachMenuToWindow(win) {
@@ -1078,27 +1089,7 @@ function attachMenuToWindow(win) {
 
       const onCommand = async () => {
         try {
-          await ensureServiceReady();
-          const items = Zotero.getActiveZoteroPane().getSelectedItems();
-          const keys = items.map((item) => item.key);
-          Zotero.debug(
-            `[PaperView] Selected ${keys.length} item(s): ${keys.join(", ")}`
-          );
-          const rawQuery = await promptQueryText();
-          if (!rawQuery) {
-            Zotero.debug("[PaperView] Query cancelled");
-            return;
-          }
-          const queryText = rawQuery;
-          const sectionsText = "";
-          const ingest = await ingestItems(items);
-          Zotero.debug(`[PaperView] Ingested: ${JSON.stringify(ingest)}`);
-          const result = await queryService(keys, queryText, sectionsText, "single");
-          if (result && result.job_id && result.result_url) {
-            await showQueryProgress(result.job_id, result.result_url);
-          } else if (result && result.result_url) {
-            Zotero.launchURL(result.result_url);
-          }
+          await runQueryForSelectedItems("single");
         } catch (err) {
           Zotero.debug(`[PaperView] onCommand error: ${err}`);
         }
@@ -1134,27 +1125,7 @@ function attachMenuToWindow(win) {
 
       const onConcatCommand = async () => {
         try {
-          await ensureServiceReady();
-          const items = Zotero.getActiveZoteroPane().getSelectedItems();
-          const keys = items.map((item) => item.key);
-          Zotero.debug(
-            `[PaperView] Selected ${keys.length} item(s) for concat: ${keys.join(", ")}`
-          );
-          const rawQuery = await promptQueryText();
-          if (!rawQuery) {
-            Zotero.debug("[PaperView] Concat query cancelled");
-            return;
-          }
-          const queryText = rawQuery;
-          const sectionsText = "";
-          const ingest = await ingestItems(items);
-          Zotero.debug(`[PaperView] Ingested: ${JSON.stringify(ingest)}`);
-          const result = await queryService(keys, queryText, sectionsText, "merge");
-          if (result && result.job_id && result.result_url) {
-            await showQueryProgress(result.job_id, result.result_url);
-          } else if (result && result.result_url) {
-            Zotero.launchURL(result.result_url);
-          }
+          await runQueryForSelectedItems("merge");
         } catch (err) {
           Zotero.debug(`[PaperView] onConcatCommand error: ${err}`);
         }
@@ -1226,8 +1197,8 @@ function attachMenuToWindow(win) {
       const onHistoryCommand = () => {
         ensureServiceReady()
           .then(() => {
-          const baseUrl = getServiceBaseUrl();
-          Zotero.launchURL(`${baseUrl}/query_view.html`);
+            const baseUrl = getServiceBaseUrl();
+            Zotero.launchURL(`${baseUrl}/query_view.html`);
           })
           .catch((err) => {
             Zotero.debug(`[PaperView] history command error: ${err}`);

@@ -97,7 +97,12 @@ def main():
     ap = argparse.ArgumentParser(description="Convert Zotero items.jsonl to CSV for OCR")
     ap.add_argument("--jsonl", default="./store/zotero/items.jsonl")
     ap.add_argument("--csv_out", default="./store/zotero/items.csv")
-    ap.add_argument("--dedupe", action="store_true", default=True)
+    ap.add_argument(
+        "--dedupe",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="是否按 item_key 去重（默认开启，可用 --no-dedupe 关闭）",
+    )
     args = ap.parse_args()
 
     rows = load_jsonl(args.jsonl)

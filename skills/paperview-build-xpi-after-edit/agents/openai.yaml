@@ -1,0 +1,3 @@
+interface:
+  display_name: "Paperview Build XPI After Edit"
+  short_description: "Run scripts/build_xpi.sh after edits"

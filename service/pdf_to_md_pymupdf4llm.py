@@ -148,8 +148,12 @@ def main():
     ap.add_argument("--issues_out", default="papers.md_issues.csv")
     ap.add_argument("--base_output_dir", default="./store/ocr", help="输出根目录（相对路径会拼接到该目录）")
 
-    ap.add_argument("--page_chunks", action="store_true", default=True,
-                    help="page_chunks=True: 输出按页 chunks（推荐）；否则输出整篇 markdown 字符串")
+    ap.add_argument(
+        "--page_chunks",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="是否输出按页 chunks（默认开启，可用 --no-page_chunks 关闭）",
+    )
     ap.add_argument("--write_images", action="store_true", default=False,
                     help="是否抽取图片并在 markdown 中插入引用（会写文件）")
     ap.add_argument("--image_dir", default="images")
@@ -186,7 +190,7 @@ def main():
         return os.path.join(base_dir, path)
 
     if args.base_output_dir:
-        os.makedirs(os.path.dirname(args.base_output_dir), exist_ok=True)
+        os.makedirs(args.base_output_dir, exist_ok=True)
         args.pdf_dir = apply_base_dir(args.pdf_dir, args.base_output_dir)
         args.md_dir = apply_base_dir(args.md_dir, args.base_output_dir)
         args.out_jsonl = apply_base_dir(args.out_jsonl, args.base_output_dir)

@@ -9,6 +9,7 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md)
 - Calls `/query` and opens `result_url`
 - Shows progress windows (polls `/status/<job_id>`)
 - Right-click actions auto-start the local service if it is not running
+- `OCR Cache` processes only the currently selected items and incrementally merges results into cache
 
 ## Install (build .xpi)
 

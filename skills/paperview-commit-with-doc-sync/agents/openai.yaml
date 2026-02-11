@@ -1,0 +1,3 @@
+interface:
+  display_name: "Paperview Commit With Doc Sync"
+  short_description: "Commit code with changelog and bilingual README sync"

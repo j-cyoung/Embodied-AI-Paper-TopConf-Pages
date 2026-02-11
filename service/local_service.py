@@ -177,90 +177,161 @@ class DemoHandler(BaseHTTPRequestHandler):
             return {"processed": 0, "ok": 0, "error": 0}
         return {"processed": len(processed), "ok": len(ok), "error": len(error)}
 
-    def _ensure_ocr_cache(self, progress_path=None, status_cb=None, ocr_concurrency=DEFAULT_OCR_CONCURRENCY):
+    def _select_ingested_items(self, selected_item_keys):
+        rows = self._load_jsonl(self._items_jsonl())
+        if not selected_item_keys:
+            return rows
+        key_set = {k for k in selected_item_keys if k}
+        if not key_set:
+            return []
+        selected = []
+        for row in rows:
+            key = row.get("item_key") or row.get("paper_id")
+            if key in key_set:
+                selected.append(row)
+        return selected
+
+    def _merge_pages_cache(self, new_rows):
+        pages_path = self._pages_jsonl()
+        existing_rows = self._load_jsonl(pages_path)
+        by_key = {}
+        ordered_keys = []
+        extras = []
+
+        def add_row(row):
+            if not isinstance(row, dict):
+                return
+            key = self._row_item_key(row)
+            if key:
+                if key not in by_key:
+                    ordered_keys.append(key)
+                by_key[key] = row
+            else:
+                extras.append(row)
+
+        for row in existing_rows:
+            add_row(row)
+        for row in new_rows:
+            add_row(row)
+
+        merged = [by_key[k] for k in ordered_keys] + extras
+        self._write_jsonl(pages_path, merged)
+
+    def _ensure_ocr_cache(
+        self,
+        progress_path=None,
+        status_cb=None,
+        ocr_concurrency=DEFAULT_OCR_CONCURRENCY,
+        selected_item_keys=None,
+    ):
         with OCR_CACHE_LOCK:
             base_dir = self._base_dir()
-            self._ocr_dir().mkdir(parents=True, exist_ok=True)
-            # update items.csv from items.jsonl
-            self._run_cmd(
-                [
-                    sys.executable,
-                    "zotero_items_to_csv.py",
-                    "--jsonl",
-                    str(self._items_jsonl()),
-                    "--csv_out",
-                    str(self._items_csv()),
-                ],
-                cwd=base_dir,
-            )
-            # run OCR with resume to reuse cached results
-            cmd = [
-                sys.executable,
-                "pdf_to_md_pymupdf4llm.py",
-                "--csv_in",
-                str(self._items_csv()),
-                "--base_output_dir",
-                str(self._ocr_dir()),
-                "--out_jsonl",
-                "papers.pages.jsonl",
-                "--resume",
-                "--resume_from",
-                str(self._pages_jsonl()),
-                "--concurrency",
-                str(max(1, int(ocr_concurrency))),
-            ]
-            if progress_path:
-                cmd += ["--progress_path", str(progress_path)]
-            print(f"[ocr] start ensure cache, concurrency={ocr_concurrency}, progress_path={progress_path}")
-            print(f"[cmd] {' '.join(cmd)}")
-            if not status_cb:
-                self._run_cmd(cmd, cwd=base_dir)
+            ocr_dir = self._ocr_dir()
+            ocr_dir.mkdir(parents=True, exist_ok=True)
+            selected_rows = self._select_ingested_items(selected_item_keys)
+            if not selected_rows:
+                if status_cb:
+                    status_cb(0, 0)
                 return
-            proc = subprocess.Popen(cmd, cwd=base_dir)
-            out_jsonl = self._pages_jsonl()
-            last_done = -1
-            last_total = -1
-            last_tick = 0.0
-            while proc.poll() is None:
-                done = None
-                total = None
+
+            run_id = uuid.uuid4().hex[:8]
+            selected_items_jsonl = ocr_dir / f"items.selected.{run_id}.jsonl"
+            selected_items_csv = ocr_dir / f"items.selected.{run_id}.csv"
+            selected_pages_jsonl = ocr_dir / f"papers.pages.selected.{run_id}.jsonl"
+
+            try:
+                self._write_jsonl(selected_items_jsonl, selected_rows)
+                self._run_cmd(
+                    [
+                        sys.executable,
+                        "zotero_items_to_csv.py",
+                        "--jsonl",
+                        str(selected_items_jsonl),
+                        "--csv_out",
+                        str(selected_items_csv),
+                    ],
+                    cwd=base_dir,
+                )
+
+                cmd = [
+                    sys.executable,
+                    "pdf_to_md_pymupdf4llm.py",
+                    "--csv_in",
+                    str(selected_items_csv),
+                    "--base_output_dir",
+                    str(ocr_dir),
+                    "--out_jsonl",
+                    str(selected_pages_jsonl),
+                    "--resume",
+                    "--resume_from",
+                    str(self._pages_jsonl()),
+                    "--concurrency",
+                    str(max(1, int(ocr_concurrency))),
+                ]
                 if progress_path:
-                    try:
-                        progress = json.loads(Path(progress_path).read_text(encoding="utf-8"))
-                        done = int(progress.get("done") or 0)
-                        total = int(progress.get("total") or 0)
-                    except Exception:
+                    cmd += ["--progress_path", str(progress_path)]
+
+                print(
+                    f"[ocr] start ensure cache selected={len(selected_rows)} "
+                    f"concurrency={ocr_concurrency} progress_path={progress_path}"
+                )
+                print(f"[cmd] {' '.join(cmd)}")
+
+                if not status_cb:
+                    self._run_cmd(cmd, cwd=base_dir)
+                else:
+                    proc = subprocess.Popen(cmd, cwd=base_dir)
+                    out_jsonl = selected_pages_jsonl
+                    last_done = -1
+                    last_total = -1
+                    last_tick = 0.0
+                    while proc.poll() is None:
                         done = None
                         total = None
-                if done is None and out_jsonl.exists():
-                    with out_jsonl.open("r", encoding="utf-8") as f:
-                        done = sum(1 for line in f if line.strip())
-                if done is not None:
-                    if done != last_done or total != last_total:
-                        status_cb(done, total)
-                        now = time.time()
-                        if now - last_tick >= 10:
-                            print(f"[ocr] progress done={done}, total={total}")
-                            last_tick = now
-                        last_done = done
-                        last_total = total
-                time.sleep(1)
-            if proc.returncode != 0:
-                raise RuntimeError(f"pdf_to_md_pymupdf4llm failed with code {proc.returncode}")
-            # final update
-            if progress_path:
-                try:
-                    progress = json.loads(Path(progress_path).read_text(encoding="utf-8"))
-                    done = int(progress.get("done") or 0)
-                    total = int(progress.get("total") or 0)
-                    status_cb(done, total)
-                    return
-                except Exception:
-                    pass
-            if out_jsonl.exists():
-                with out_jsonl.open("r", encoding="utf-8") as f:
-                    done = sum(1 for line in f if line.strip())
-                status_cb(done, None)
+                        if progress_path:
+                            try:
+                                progress = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+                                done = int(progress.get("done") or 0)
+                                total = int(progress.get("total") or 0)
+                            except Exception:
+                                done = None
+                                total = None
+                        if done is None and out_jsonl.exists():
+                            with out_jsonl.open("r", encoding="utf-8") as f:
+                                done = sum(1 for line in f if line.strip())
+                        if done is not None and (done != last_done or total != last_total):
+                            status_cb(done, total)
+                            now = time.time()
+                            if now - last_tick >= 10:
+                                print(f"[ocr] progress done={done}, total={total}")
+                                last_tick = now
+                            last_done = done
+                            last_total = total
+                        time.sleep(1)
+                    if proc.returncode != 0:
+                        raise RuntimeError(f"pdf_to_md_pymupdf4llm failed with code {proc.returncode}")
+
+                new_rows = self._load_jsonl(selected_pages_jsonl)
+                self._merge_pages_cache(new_rows)
+
+                if status_cb:
+                    if progress_path:
+                        try:
+                            progress = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+                            done = int(progress.get("done") or 0)
+                            total = int(progress.get("total") or 0)
+                            status_cb(done, total)
+                            return
+                        except Exception:
+                            pass
+                    status_cb(len(new_rows), len(selected_rows))
+            finally:
+                for path in (selected_items_jsonl, selected_items_csv, selected_pages_jsonl):
+                    try:
+                        if path.exists():
+                            path.unlink()
+                    except Exception:
+                        pass
 
     def _load_jsonl(self, path):
         rows = []
@@ -292,6 +363,12 @@ class DemoHandler(BaseHTTPRequestHandler):
                 selected.append(row)
         self._write_jsonl(out_path, selected)
         return len(selected)
+
+    def _select_items_by_keys(self, items, item_keys):
+        key_set = {k for k in item_keys if k}
+        if not key_set:
+            return []
+        return [item for item in items if item.get("item_key") in key_set]
 
     def _count_selected_ocr_done(self, selected_keys):
         return self._selected_ocr_stats(selected_keys).get("processed", 0)
@@ -444,7 +521,7 @@ class DemoHandler(BaseHTTPRequestHandler):
         if not items_path.exists():
             raise ValueError("items.jsonl not found; run ingest first")
         items = self._load_jsonl(items_path)
-        selected = [item for item in items if item.get("item_key") in set(item_keys)]
+        selected = self._select_items_by_keys(items, item_keys)
         if not selected:
             raise ValueError("no matching items in items.jsonl")
 
@@ -473,6 +550,7 @@ class DemoHandler(BaseHTTPRequestHandler):
             progress_path=progress_path,
             status_cb=ocr_update,
             ocr_concurrency=ocr_concurrency,
+            selected_item_keys=selected_keys,
         )
         final_stats = self._selected_ocr_stats(selected_keys)
         final_msg = None
@@ -552,7 +630,7 @@ class DemoHandler(BaseHTTPRequestHandler):
         if not items_path.exists():
             raise ValueError("items.jsonl not found; run ingest first")
         items = self._load_jsonl(items_path)
-        selected = [item for item in items if item.get("item_key") in set(item_keys)]
+        selected = self._select_items_by_keys(items, item_keys)
         if not selected:
             raise ValueError("no matching items in items.jsonl")
 
@@ -577,6 +655,7 @@ class DemoHandler(BaseHTTPRequestHandler):
             progress_path=progress_path,
             status_cb=ocr_update,
             ocr_concurrency=ocr_concurrency,
+            selected_item_keys=selected_keys,
         )
         final_stats = self._selected_ocr_stats(selected_keys)
         final_msg = None

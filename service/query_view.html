@@ -617,9 +617,8 @@
 
       function normalizeRecord(rec) {
         const usage = rec.query_usage || {};
-        const totalTokens =
-          Number(usage.total_tokens ?? rec.total_tokens ?? rec.total_tokens) || 0;
-        const elapsed = Number(rec.query_elapsed_ms ?? rec.query_elapsed_ms) || 0;
+        const totalTokens = Number(usage.total_tokens ?? rec.total_tokens ?? 0) || 0;
+        const elapsed = Number(rec.query_elapsed_ms ?? rec.elapsed_ms ?? 0) || 0;
         const status = safeText(rec.query_status || rec.status || "").trim();
         return {
           paper_id: safeText(rec.paper_id),
@@ -636,8 +635,8 @@
           query_response: safeText(rec.query_response),
           query_error: safeText(rec.query_error),
           total_tokens: totalTokens,
-          prompt_tokens: Number(usage.prompt_tokens || 0),
-          output_tokens: Number(usage.output_tokens || 0),
+          prompt_tokens: Number(usage.prompt_tokens ?? rec.prompt_tokens ?? 0) || 0,
+          output_tokens: Number(usage.output_tokens ?? rec.output_tokens ?? 0) || 0,
           query_elapsed_ms: elapsed,
           pdf_url: safeText(rec.pdf_url),
         };

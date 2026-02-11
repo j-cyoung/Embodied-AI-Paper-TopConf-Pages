@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.3.1 - 2026-02-11
+
+**Added**
+- Integration test suite for local service endpoints, including ingest/query/ocr/status/history and path traversal checks.
+- Repository skills for post-edit XPI build and commit workflow with changelog/README sync requirements.
+
+**Changed**
+- `OCR Cache` now processes only currently selected Zotero items instead of refreshing all ingested items.
+- OCR cache update now merges selected-run outputs back into the global OCR cache file incrementally.
+- Query/OCR progress polling and query command flow in `bootstrap.js` were refactored to reduce duplicated logic.
+
+**Fixed**
+- Environment bootstrap can recover from a failed initialization and retry later instead of staying stuck.
+- CLI flags `--page_chunks` and `--dedupe` now support explicit disable forms (`--no-page_chunks`, `--no-dedupe`).
+- Query result normalization fixed redundant token/elapsed fallback expressions.
+
 ## v0.3.0 - 2026-02-11
 
 **Added**
