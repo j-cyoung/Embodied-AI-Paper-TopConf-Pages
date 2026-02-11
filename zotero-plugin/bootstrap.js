@@ -695,11 +695,140 @@ function buildItemPayload(item) {
   };
 }
 
-function promptQueryText() {
+async function promptQueryText() {
   try {
     const win = Zotero.getMainWindow();
-    const text = win.prompt("请输入查询内容，例：[method] 总结方法", "");
-    return text && text.trim() ? text.trim() : null;
+    if (!win || !win.document) return null;
+    const doc = win.document;
+    const mount = doc.body || doc.documentElement;
+    if (!mount) return null;
+
+    const old = doc.getElementById("paperview-query-backdrop");
+    if (old && old.parentNode) {
+      old.parentNode.removeChild(old);
+    }
+
+    return await new Promise((resolve) => {
+      let closed = false;
+      const close = (value) => {
+        if (closed) return;
+        closed = true;
+        if (backdrop && backdrop.parentNode) {
+          backdrop.parentNode.removeChild(backdrop);
+        }
+        resolve(value && value.trim() ? value.trim() : null);
+      };
+
+      const backdrop = doc.createElement("div");
+      backdrop.setAttribute("id", "paperview-query-backdrop");
+      backdrop.style.position = "fixed";
+      backdrop.style.inset = "0";
+      backdrop.style.background = "rgba(15, 23, 42, 0.32)";
+      backdrop.style.zIndex = "2147483647";
+      backdrop.style.display = "flex";
+      backdrop.style.alignItems = "center";
+      backdrop.style.justifyContent = "center";
+
+      const panel = doc.createElement("div");
+      panel.style.width = "min(760px, calc(100vw - 40px))";
+      panel.style.maxHeight = "calc(100vh - 80px)";
+      panel.style.background = "#ffffff";
+      panel.style.border = "1px solid #cbd5e1";
+      panel.style.borderRadius = "12px";
+      panel.style.boxShadow = "0 20px 44px rgba(15,23,42,.25)";
+      panel.style.padding = "14px";
+      panel.style.boxSizing = "border-box";
+      panel.style.display = "flex";
+      panel.style.flexDirection = "column";
+      panel.style.gap = "10px";
+
+      const title = doc.createElement("div");
+      title.textContent = "请输入查询内容（支持多行）";
+      title.style.fontSize = "14px";
+      title.style.fontWeight = "700";
+      title.style.color = "#0f172a";
+
+      const hint = doc.createElement("div");
+      hint.textContent = "提示：可直接换行；Ctrl/Cmd + Enter 提交，Esc 取消。";
+      hint.style.fontSize = "12px";
+      hint.style.color = "#475569";
+
+      const textarea = doc.createElement("textarea");
+      textarea.value = "";
+      textarea.style.width = "100%";
+      textarea.style.maxWidth = "100%";
+      textarea.style.boxSizing = "border-box";
+      textarea.style.minHeight = "220px";
+      textarea.style.maxHeight = "55vh";
+      textarea.style.resize = "vertical";
+      textarea.style.padding = "10px";
+      textarea.style.border = "1px solid #cbd5e1";
+      textarea.style.borderRadius = "10px";
+      textarea.style.fontSize = "13px";
+      textarea.style.lineHeight = "1.45";
+      textarea.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+      textarea.style.background = "#f8fafc";
+      textarea.style.color = "#0f172a";
+
+      const btnRow = doc.createElement("div");
+      btnRow.style.display = "flex";
+      btnRow.style.justifyContent = "flex-end";
+      btnRow.style.gap = "8px";
+
+      const btnCancel = doc.createElement("button");
+      btnCancel.textContent = "取消";
+      btnCancel.style.padding = "7px 12px";
+      btnCancel.style.border = "1px solid #cbd5e1";
+      btnCancel.style.background = "#ffffff";
+      btnCancel.style.borderRadius = "9px";
+      btnCancel.style.cursor = "pointer";
+
+      const btnOk = doc.createElement("button");
+      btnOk.textContent = "查询";
+      btnOk.style.padding = "7px 12px";
+      btnOk.style.border = "1px solid #4f46e5";
+      btnOk.style.background = "#4f46e5";
+      btnOk.style.color = "#ffffff";
+      btnOk.style.borderRadius = "9px";
+      btnOk.style.cursor = "pointer";
+
+      const onKeyDown = (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+          e.preventDefault();
+          close(textarea.value);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          close(null);
+        }
+      };
+
+      btnCancel.addEventListener("click", () => close(null));
+      btnOk.addEventListener("click", () => close(textarea.value));
+      textarea.addEventListener("keydown", onKeyDown);
+      backdrop.addEventListener("click", (e) => {
+        if (e.target === backdrop) close(null);
+      });
+
+      btnRow.appendChild(btnCancel);
+      btnRow.appendChild(btnOk);
+      panel.appendChild(title);
+      panel.appendChild(hint);
+      panel.appendChild(textarea);
+      panel.appendChild(btnRow);
+      backdrop.appendChild(panel);
+      mount.appendChild(backdrop);
+
+      win.setTimeout(() => {
+        try {
+          textarea.focus();
+          textarea.select();
+        } catch (err) {
+          // ignore
+        }
+      }, 0);
+    });
   } catch (err) {
     Zotero.debug(`[PaperView] prompt error: ${err}`);
     return null;
@@ -899,7 +1028,7 @@ function attachMenuToWindow(win) {
           Zotero.debug(
             `[PaperView] Selected ${keys.length} item(s): ${keys.join(", ")}`
           );
-          const rawQuery = promptQueryText();
+          const rawQuery = await promptQueryText();
           if (!rawQuery) {
             Zotero.debug("[PaperView] Query cancelled");
             return;
@@ -954,7 +1083,7 @@ function attachMenuToWindow(win) {
           Zotero.debug(
             `[PaperView] Selected ${keys.length} item(s) for concat: ${keys.join(", ")}`
           );
-          const rawQuery = promptQueryText();
+          const rawQuery = await promptQueryText();
           if (!rawQuery) {
             Zotero.debug("[PaperView] Concat query cancelled");
             return;

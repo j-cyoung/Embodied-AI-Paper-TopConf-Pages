@@ -253,6 +253,84 @@
         font-size: 12.5px;
         overflow-wrap: anywhere;
       }
+      .response.markdown {
+        white-space: normal;
+      }
+      .md-switch {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .md-switch button {
+        width: auto;
+        padding: 5px 10px;
+        font-size: 12px;
+      }
+      .md-switch button.active {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: #fff;
+      }
+      .md-pane.hidden {
+        display: none;
+      }
+      .response.markdown h1,
+      .response.markdown h2,
+      .response.markdown h3,
+      .response.markdown h4,
+      .response.markdown h5,
+      .response.markdown h6 {
+        margin: 0.8em 0 0.45em;
+        line-height: 1.35;
+      }
+      .response.markdown h1 {
+        font-size: 1.25em;
+      }
+      .response.markdown h2 {
+        font-size: 1.15em;
+      }
+      .response.markdown h3 {
+        font-size: 1.08em;
+      }
+      .response.markdown p {
+        margin: 0.45em 0;
+      }
+      .response.markdown ul,
+      .response.markdown ol {
+        margin: 0.45em 0;
+        padding-left: 1.25em;
+      }
+      .response.markdown li {
+        margin: 0.2em 0;
+      }
+      .response.markdown blockquote {
+        margin: 0.6em 0;
+        padding: 0.3em 0.8em;
+        border-left: 3px solid #94a3b8;
+        background: #fff;
+        color: #334155;
+      }
+      .response.markdown pre {
+        margin: 0.6em 0;
+        padding: 10px;
+        border-radius: 9px;
+        border: 1px solid var(--border);
+        background: #0f172a;
+        color: #e2e8f0;
+        overflow: auto;
+      }
+      .response.markdown code {
+        background: #e2e8f0;
+        border-radius: 6px;
+        padding: 1px 5px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.93em;
+      }
+      .response.markdown pre code {
+        background: transparent;
+        padding: 0;
+        color: inherit;
+      }
 
       .actions {
         display: flex;
@@ -382,6 +460,136 @@
 
       function safeText(v) {
         return (v ?? "").toString();
+      }
+
+      function escapeHtml(text) {
+        return safeText(text)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function renderInlineMarkdown(text) {
+        let out = escapeHtml(text);
+        out = out.replace(
+          /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+          '<a href="$2" target="_blank" rel="noreferrer">$1</a>'
+        );
+        out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
+        out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+        out = out.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+        out = out.replace(/~~([^~]+)~~/g, "<del>$1</del>");
+        return out;
+      }
+
+      function renderMarkdown(mdText) {
+        const lines = safeText(mdText).replace(/\r/g, "").split("\n");
+        const html = [];
+        let inCode = false;
+        let codeLines = [];
+        let inUl = false;
+        let inOl = false;
+
+        const closeLists = () => {
+          if (inUl) {
+            html.push("</ul>");
+            inUl = false;
+          }
+          if (inOl) {
+            html.push("</ol>");
+            inOl = false;
+          }
+        };
+
+        const flushCode = () => {
+          if (!inCode) return;
+          html.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+          codeLines = [];
+          inCode = false;
+        };
+
+        for (const rawLine of lines) {
+          const line = rawLine || "";
+          const trim = line.trim();
+
+          if (/^```/.test(trim)) {
+            if (inCode) {
+              flushCode();
+            } else {
+              closeLists();
+              inCode = true;
+              codeLines = [];
+            }
+            continue;
+          }
+
+          if (inCode) {
+            codeLines.push(line);
+            continue;
+          }
+
+          if (!trim) {
+            closeLists();
+            continue;
+          }
+
+          const heading = trim.match(/^(#{1,6})\s+(.+)$/);
+          if (heading) {
+            closeLists();
+            const lvl = heading[1].length;
+            html.push(`<h${lvl}>${renderInlineMarkdown(heading[2])}</h${lvl}>`);
+            continue;
+          }
+
+          if (/^(-{3,}|\*{3,}|_{3,})$/.test(trim)) {
+            closeLists();
+            html.push("<hr />");
+            continue;
+          }
+
+          const ulItem = line.match(/^\s*[-*+]\s+(.+)$/);
+          if (ulItem) {
+            if (inOl) {
+              html.push("</ol>");
+              inOl = false;
+            }
+            if (!inUl) {
+              html.push("<ul>");
+              inUl = true;
+            }
+            html.push(`<li>${renderInlineMarkdown(ulItem[1])}</li>`);
+            continue;
+          }
+
+          const olItem = line.match(/^\s*\d+\.\s+(.+)$/);
+          if (olItem) {
+            if (inUl) {
+              html.push("</ul>");
+              inUl = false;
+            }
+            if (!inOl) {
+              html.push("<ol>");
+              inOl = true;
+            }
+            html.push(`<li>${renderInlineMarkdown(olItem[1])}</li>`);
+            continue;
+          }
+
+          closeLists();
+
+          if (/^>\s?/.test(trim)) {
+            html.push(`<blockquote><p>${renderInlineMarkdown(trim.replace(/^>\s?/, ""))}</p></blockquote>`);
+            continue;
+          }
+
+          html.push(`<p>${renderInlineMarkdown(trim)}</p>`);
+        }
+
+        flushCode();
+        closeLists();
+        return html.join("");
       }
 
       function setLoadHint(text) {
@@ -650,11 +858,41 @@
           response.className = "section";
           const respTitle = document.createElement("h3");
           respTitle.textContent = "回答";
-          const respBody = document.createElement("div");
-          respBody.className = "response";
-          respBody.textContent = responseText || "";
+          const mdSwitch = document.createElement("div");
+          mdSwitch.className = "md-switch";
+          const btnRender = document.createElement("button");
+          btnRender.type = "button";
+          btnRender.className = "secondary active";
+          btnRender.textContent = "渲染";
+          const btnRaw = document.createElement("button");
+          btnRaw.type = "button";
+          btnRaw.className = "secondary";
+          btnRaw.textContent = "原文";
+
+          const respRender = document.createElement("div");
+          respRender.className = "response markdown md-pane";
+          respRender.innerHTML = renderMarkdown(responseText || "");
+
+          const respRaw = document.createElement("pre");
+          respRaw.className = "response md-pane hidden";
+          respRaw.textContent = responseText || "";
+
+          const setPane = (mode) => {
+            const showRaw = mode === "raw";
+            respRaw.classList.toggle("hidden", !showRaw);
+            respRender.classList.toggle("hidden", showRaw);
+            btnRaw.classList.toggle("active", showRaw);
+            btnRender.classList.toggle("active", !showRaw);
+          };
+          btnRender.addEventListener("click", () => setPane("render"));
+          btnRaw.addEventListener("click", () => setPane("raw"));
+
+          mdSwitch.appendChild(btnRender);
+          mdSwitch.appendChild(btnRaw);
           response.appendChild(respTitle);
-          response.appendChild(respBody);
+          response.appendChild(mdSwitch);
+          response.appendChild(respRender);
+          response.appendChild(respRaw);
           body.appendChild(response);
 
           const actions = document.createElement("div");
@@ -666,7 +904,7 @@
           btnCopy.textContent = "复制内容";
           btnCopy.addEventListener("click", async () => {
             try {
-              await navigator.clipboard.writeText(respBody.textContent || "");
+              await navigator.clipboard.writeText(responseText || "");
               btnCopy.textContent = "已复制";
               setTimeout(() => (btnCopy.textContent = "复制内容"), 900);
             } catch {
