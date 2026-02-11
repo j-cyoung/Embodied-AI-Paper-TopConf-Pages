@@ -374,6 +374,14 @@
         font-size: 12px;
         margin: 6px 0 0;
       }
+      .history-actions {
+        margin-top: 8px;
+        display: flex;
+        gap: 8px;
+      }
+      .history-actions button {
+        width: auto;
+      }
     </style>
   </head>
   <body>
@@ -406,9 +414,11 @@
           <div>
             <label>历史查询</label>
             <select id="history"></select>
-            <button id="refreshHistory" type="button" class="secondary" style="margin-top: 8px">
-              刷新历史
-            </button>
+            <div class="history-actions">
+              <button id="refreshHistory" type="button" class="secondary">刷新历史</button>
+              <button id="deleteHistory" type="button" class="secondary">删除当前</button>
+              <button id="clearHistoryAll" type="button" class="secondary">清空历史</button>
+            </div>
           </div>
           <div>
             <label>展开/折叠</label>
@@ -454,6 +464,8 @@
       const elClear = document.getElementById("clear");
       const elHistory = document.getElementById("history");
       const elRefreshHistory = document.getElementById("refreshHistory");
+      const elDeleteHistory = document.getElementById("deleteHistory");
+      const elClearHistoryAll = document.getElementById("clearHistoryAll");
       const elLoadHint = document.getElementById("loadHint");
       const elExpandAll = document.getElementById("expandAll");
       const elCollapseAll = document.getElementById("collapseAll");
@@ -1063,6 +1075,38 @@
         }
       }
 
+      async function postJson(path, payload) {
+        const resp = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload || {}),
+        });
+        let data = {};
+        try {
+          data = await resp.json();
+        } catch {
+          data = {};
+        }
+        if (!resp.ok) {
+          const msg = safeText(data.error) || `HTTP ${resp.status}`;
+          throw new Error(msg);
+        }
+        return data;
+      }
+
+      function updateHistoryActionState() {
+        const hasRealJob = !!safeText(elHistory.value).trim();
+        const hasAnyRealJob = Array.from(elHistory.options || []).some(
+          (opt) => !!safeText(opt.value).trim()
+        );
+        if (elDeleteHistory) {
+          elDeleteHistory.disabled = !hasRealJob;
+        }
+        if (elClearHistoryAll) {
+          elClearHistoryAll.disabled = !hasAnyRealJob;
+        }
+      }
+
       function formatHistoryLabel(item) {
         const ts = safeText(item.created_at);
         let stamp = ts;
@@ -1083,6 +1127,7 @@
         const history = await fetchHistory();
         if (history === null) {
           elHistory.innerHTML = '<option value="">(未启用)</option>';
+          updateHistoryActionState();
           return null;
         }
         elHistory.innerHTML = "";
@@ -1091,6 +1136,7 @@
           opt.value = "";
           opt.textContent = "(暂无历史)";
           elHistory.appendChild(opt);
+          updateHistoryActionState();
           return history;
         }
         for (const item of history) {
@@ -1102,11 +1148,13 @@
         if (preselectJob && history.some((h) => h.job_id === preselectJob)) {
           elHistory.value = preselectJob;
         }
+        updateHistoryActionState();
         return history;
       }
 
       elHistory.addEventListener("change", async () => {
         const job = elHistory.value;
+        updateHistoryActionState();
         if (!job) return;
         await loadFromJob(job);
       });
@@ -1116,6 +1164,52 @@
         const history = await refreshHistory(current || undefined);
         if (history && history.length && !elHistory.value) {
           elHistory.value = history[0].job_id;
+        }
+        updateHistoryActionState();
+      });
+
+      elDeleteHistory.addEventListener("click", async () => {
+        const job = safeText(elHistory.value).trim();
+        if (!job) return;
+        const ok = window.confirm(`确认删除历史记录 ${job} 吗？`);
+        if (!ok) return;
+        try {
+          const data = await postJson("/history/delete", { job_id: job });
+          if (!data.deleted) {
+            alert("未删除：记录不存在或已被清理。");
+          }
+          if (state.activeJobId === job) {
+            clearAll();
+          }
+          const history = await refreshHistory();
+          if (history && history.length) {
+            const latest = safeText(history[0].job_id).trim();
+            if (latest) {
+              elHistory.value = latest;
+              await loadFromJob(latest);
+            }
+          } else {
+            setLoadHint("历史记录已删除。");
+          }
+        } catch (e) {
+          alert(`删除失败：${e.message || e}`);
+        } finally {
+          updateHistoryActionState();
+        }
+      });
+
+      elClearHistoryAll.addEventListener("click", async () => {
+        const ok = window.confirm("确认清空所有历史记录吗？该操作不可撤销。");
+        if (!ok) return;
+        try {
+          const data = await postJson("/history/clear", {});
+          clearAll();
+          await refreshHistory();
+          setLoadHint(`已清空历史记录（删除 ${Number(data.removed || 0)} 条）`);
+        } catch (e) {
+          alert(`清空失败：${e.message || e}`);
+        } finally {
+          updateHistoryActionState();
         }
       });
 

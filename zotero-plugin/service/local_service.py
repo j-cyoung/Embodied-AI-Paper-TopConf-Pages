@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import uuid
@@ -355,6 +356,40 @@ class DemoHandler(BaseHTTPRequestHandler):
         entries.sort(key=sort_key, reverse=True)
         return entries
 
+    def _resolve_history_job_dir(self, job_id):
+        job = str(job_id or "").strip()
+        if not job or not re.fullmatch(r"[A-Za-z0-9._-]+", job):
+            return None
+        root = self._query_dir().resolve()
+        target = (self._query_dir() / job).resolve()
+        if not str(target).startswith(str(root) + os.sep):
+            return None
+        return target
+
+    def _delete_history_job(self, job_id):
+        target = self._resolve_history_job_dir(job_id)
+        if not target:
+            return False
+        if not target.exists() or not target.is_dir():
+            return False
+        shutil.rmtree(target)
+        return True
+
+    def _clear_history(self):
+        query_dir = self._query_dir()
+        if not query_dir.exists():
+            return 0
+        removed = 0
+        for child in list(query_dir.iterdir()):
+            if not child.is_dir():
+                continue
+            try:
+                shutil.rmtree(child)
+                removed += 1
+            except Exception as e:
+                print(f"[history] clear skip path={child} err={e}")
+        return removed
+
     def _write_query_snapshot(self, job_dir, payload, items):
         sections = payload.get("sections") or ""
         snapshot = {
@@ -601,9 +636,10 @@ class DemoHandler(BaseHTTPRequestHandler):
         return self._send_json(404, {"error": "not found"})
 
     def do_POST(self):
+        path = urlparse(self.path).path
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
-        if self.path == "/query":
+        if path == "/query":
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except json.JSONDecodeError:
@@ -625,7 +661,7 @@ class DemoHandler(BaseHTTPRequestHandler):
 
             threading.Thread(target=run_job, daemon=True).start()
             return self._send_json(200, {"result_url": result_url, "job_id": job_id})
-        if self.path == "/ocr":
+        if path == "/ocr":
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except json.JSONDecodeError:
@@ -643,7 +679,7 @@ class DemoHandler(BaseHTTPRequestHandler):
 
             threading.Thread(target=run_job, daemon=True).start()
             return self._send_json(200, {"job_id": job_id})
-        if self.path == "/ingest":
+        if path == "/ingest":
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")
             except json.JSONDecodeError:
@@ -660,6 +696,27 @@ class DemoHandler(BaseHTTPRequestHandler):
                     "missing_pdf": missing_pdf,
                 },
             )
+        if path == "/history/delete":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                payload = {}
+            job_id = (payload.get("job_id") or "").strip()
+            if not job_id:
+                return self._send_json(400, {"ok": False, "error": "missing job_id"})
+            try:
+                deleted = self._delete_history_job(job_id)
+            except Exception as e:
+                return self._send_json(500, {"ok": False, "error": str(e), "job_id": job_id})
+            print(f"[history] delete job_id={job_id} deleted={deleted}")
+            return self._send_json(200, {"ok": True, "job_id": job_id, "deleted": bool(deleted)})
+        if path == "/history/clear":
+            try:
+                removed = self._clear_history()
+            except Exception as e:
+                return self._send_json(500, {"ok": False, "error": str(e)})
+            print(f"[history] clear removed={removed}")
+            return self._send_json(200, {"ok": True, "removed": int(removed)})
         return self._send_json(404, {"error": "not found"})
 
 
