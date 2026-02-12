@@ -10,6 +10,7 @@
 - 查询过程中显示进度条（轮询 `/status/<job_id>`）
 - 右键操作会自动探活并启动本地服务（若服务未运行）
 - `OCR Cache` 仅处理当前选中的条目，并将结果增量合并回缓存
+- 设置页提供运行时诊断与连通性检查（`Check Runtime`、`Test Connection`、`Restart Service`）
 
 ## 安装（打包成 .xpi）
 
@@ -37,15 +38,19 @@
 
 - venv 路径：`<ZoteroProfile>/paperview/venv`
 
-## API Key 设置
+## 设置页（Zotero Settings -> PaperView）
 
-- Zotero 顶部菜单：`Tools` -> `PaperView: Set API Key`
-- 插件会将 API Key 传入服务进程（等价于设置 `OPENAI_API_KEY` / `SILICONFLOW_API_KEY`）
+- 打开 `Zotero Settings`，选择 `PaperView`
+- 配置 `Service Base URL`、`API Key`、`LLM Base URL`、`Model` 和运行参数
+- 修改后点击 `Save`
+- 使用 `Check Runtime` 检查运行时可见性与 key 来源
+- 使用 `Test Connection` 校验 `base_url` / `model` / `api_key` 的远程连通性
+- 当本地服务正在运行时，使用 `Restart Service` 立即应用新配置
 
-## LLM 配置（文件 + 菜单）
+## LLM 配置（设置页 + 文件）
 
-- 菜单：`Tools` -> `PaperView: LLM Settings`
-- 配置文件：`<ZoteroProfile>/paperview/llm_config.json`（默认基于当前配置自动生成）
+- 配置主入口：`Zotero Settings` -> `PaperView`
+- 配置文件：`<ZoteroProfile>/paperview/llm_config.json`（基于保存的设置自动生成）
 
 ## LLM 配置字段
 
@@ -74,11 +79,6 @@
 ```bash
 python service/local_service.py --port 20341
 ```
-
-## 设置端口/服务地址
-
-Zotero 顶部菜单：`Tools` -> `PaperView: Set Service URL`  
-示例：`http://127.0.0.1:20341`
 
 ## 查询输入格式
 

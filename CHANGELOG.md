@@ -2,10 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.4.0 - 2026-02-11
+## v0.5.0 - 2026-02-12
+
+**Added**
+- Added a unified plugin-side error taxonomy and alert flow across Query/Concat/OCR/History and service startup actions.
+- Added runtime diagnostics APIs (`/runtime/check`) with key-source visibility (`request`/`prefs`/`env`/`none`) and remote connectivity probing.
+- Added settings actions: `Check Runtime`, `Test Connection`, and `Restart Service`.
+- Added plugin-side automated tests focused on error classification and runtime-check mapping.
 
 **Changed**
-- Promoted the current stable PaperView configuration/runtime improvements and diagnostics into a `v0.4.0` release baseline.
+- Updated settings-page status output to a dedicated multi-line area under action buttons, with line wrapping for long diagnostics.
+- Standardized settings-page validation/status messages to English and aligned runtime hints with current UI behavior.
+- Enhanced service job status payloads with structured `error_code` values for better client-side mapping.
+
+**Fixed**
+- Improved failure handling for no-service, timeout, HTTP 4xx/5xx, remote auth failure, and remote unreachable scenarios.
+- Added remote API probe fallback when query subprocess fails, producing more actionable error reasons.
+
+## v0.4.0 - 2026-02-11
+
+**Added**
+- Introduced a full PaperView settings pane with explicit fields for service URL, API key, model runtime parameters, and reset/save actions.
+- Added integration and contract tests for service endpoints, runtime config resolution, and preferences pane wiring.
+
+**Changed**
+- Moved PaperView to a more stable plugin-first runtime flow with synchronized settings/runtime config before query execution.
+- Improved OCR cache behavior to process only selected items and merge selected-run outputs back into global cache incrementally.
+- Upgraded query flow with multiline input support, markdown-capable result rendering, and stronger progress/status polling.
+
+**Fixed**
+- Fixed API key propagation and query subprocess environment injection to avoid missing-key runtime failures.
+- Fixed preferences default rendering and normalization so blank/invalid values are auto-seeded and persisted safely.
+- Fixed progress/error behavior to close windows on failure and display actionable diagnostics.
 
 ## v0.3.8 - 2026-02-11
 
