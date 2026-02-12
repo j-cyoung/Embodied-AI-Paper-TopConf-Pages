@@ -65,6 +65,29 @@ description: PaperView Zotero plugin reliability playbook. Use when working on p
   - Keep a UI contract test for settings field IDs/onload hook.
   - Keep runtime config resolution tests for precedence and type normalization.
 
+## Case 3: Auto-Update Feed Detected But Not Installed
+
+- Trigger:
+  - Zotero detected a newer plugin version but did not install it automatically.
+- Symptoms:
+  - Plugin manager showed available update; automatic install did not happen.
+  - Network logs showed requests to GitHub assets but no install action.
+- Root cause:
+  - Update feed lived at `raw.githubusercontent.com` and was updated by commits, leading to caching and propagation delays.
+  - `update_hash` and release asset could drift if the XPI was rebuilt after the feed was generated.
+- Fix strategy:
+  - Point `manifest.json#applications.zotero.update_url` to a stable release asset (`releases/download/release/updates.json`).
+  - Update CI to generate `updates.json` on release publish and upload it as the `release` tag asset.
+  - Rebuild XPI for each version and keep `update_hash` in sync with the released XPI.
+- Validation:
+  - `updates.json` in the `release` tag asset shows the correct version and hash.
+  - The release XPI downloads and its sha256 matches the feed hash.
+  - Zotero installs the update after restart when auto-updates are enabled.
+- Regression guardrails:
+  - Always build XPI before tagging and generating `updates.json`.
+  - Ensure the release workflow publishes `updates.json` to the `release` tag.
+  - Verify `manifest.json` in the XPI has the `release`-asset update URL.
+
 ## Quick Commands
 
 - Run tests: `python3 -m unittest discover -s tests -p 'test_*.py'`
