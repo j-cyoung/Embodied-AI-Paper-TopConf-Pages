@@ -1,0 +1,19 @@
+{
+  "addons": {
+    "paperview-query@local": {
+      "updates": [
+        {
+          "version": "0.5.0",
+          "update_link": "https://github.com/j-cyoung/PaperViewZoteroPlugin/releases/download/v0.5.0/paperview-query.xpi",
+          "update_hash": "sha256:23cbc11edf9b4d958f9e98570946d61d01cbbe14ce42fe98d95a369366597afe",
+          "applications": {
+            "zotero": {
+              "strict_min_version": "8.0",
+              "strict_max_version": "8.*"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

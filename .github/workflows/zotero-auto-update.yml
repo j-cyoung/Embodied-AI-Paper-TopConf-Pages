@@ -1,0 +1,53 @@
+name: Update Zotero updates.json
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  update-updates-json:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate updates.json from release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag='${{ github.event.release.tag_name }}'
+          xpi_name='paperview-query.xpi'
+          update_link="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/${xpi_name}"
+
+          curl -L --fail -o "${xpi_name}" "${update_link}"
+          sha="$(sha256sum "${xpi_name}" | awk '{print $1}')"
+
+          node scripts/generate_updates_json.mjs \
+            --tag "${tag}" \
+            --update-link "${update_link}" \
+            --update-hash "sha256:${sha}"
+
+      - name: Commit updates.json
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add updates.json
+          git commit -m "chore: update updates.json for ${{ github.event.release.tag_name }}"
+          git push

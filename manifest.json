@@ -14,7 +14,7 @@
       "id": "paperview-query@local",
       "strict_min_version": "8.0",
       "strict_max_version": "8.*",
-      "update_url": "https://example.com/paperview/updates.json"
+      "update_url": "https://raw.githubusercontent.com/j-cyoung/PaperViewZoteroPlugin/main/updates.json"
     }
   }
 }
