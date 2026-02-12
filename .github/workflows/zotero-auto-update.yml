@@ -36,18 +36,17 @@ jobs:
             --update-link "${update_link}" \
             --update-hash "sha256:${sha}"
 
-      - name: Commit updates.json
+      - name: Publish updates.json to stable release tag
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          if git diff --quiet; then
-            echo "No changes to commit."
-            exit 0
+          stable_tag='release'
+
+          if ! gh release view "${stable_tag}" >/dev/null 2>&1; then
+            gh release create "${stable_tag}" --title "release" --notes "Auto-updated updates.json"
           fi
 
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add updates.json
-          git commit -m "chore: update updates.json for ${{ github.event.release.tag_name }}"
-          git push
+          gh release upload "${stable_tag}" updates.json --clobber

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.5.31 - 2026-02-12
+
+**Changed**
+- Switched `update_url` to fetch `updates.json` from the `release` tag assets.
+- Updated the release workflow to publish `updates.json` as a release asset.
+
 ## v0.5.2 - 2026-02-12
 
 **Changed**
